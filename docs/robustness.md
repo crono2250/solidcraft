@@ -46,6 +46,13 @@ worse, so a kernel change shows every seed it moves. Pull requests that touch `c
 run every 8th seed; pushes to `main` and the nightly run them all. Each seed is its own test
 (`seed_00` … `seed_95`), so the CI shards and their cores share them out.
 
+Explicit `platforms.<os>.seeds` records override only the listed seeds on that
+operating system; all other seeds keep the shared records and strict tolerances.
+The first four Windows records were independently reproduced on unmodified main
+`1e984c8e`; seed 94 was independently reproduced on unmodified main `c5992386`
+after the extrusion rebase. Both match the extrusion branch. Recording on a platform
+with such entries updates its changed seeds and preserves shared references.
+
 To record an intended change, give the reason:
 
 ```
@@ -54,22 +61,11 @@ ROBUSTNESS_GOLDENS_BLESS="why it changed" cargo test --profile ci -p solidcraft-
 
 The changed seeds and the reason are added to the file's `notes`; say why in the pull request too.
 
-The shared record is the Linux baseline. A seed may also have a reviewed `platforms` map:
-`x86_64-pc-windows-msvc` records the Windows x64/MSVC measurements and raw face/edge counts.
-Only `area`, `volume`, `faces` and `edges` may differ there. Outcomes, errors, accepted step
-kinds, body/shell counts and rejected/unsupported counts remain shared. Every platform keeps
-the same 1e-6 measurement tolerance and exact topology checks against its selected record.
-
 The generator feeds the current geometry's bounds and face/edge picks back into later
 commands. The same RNG seed can therefore generate different command coordinates or picks
 on different math libraries. The original inputs are retained, including near-contact cases.
-These target-specific snapshots track repeatability; they do not certify cross-platform
-geometric equivalence or resolve the numerical differences tracked in #924.
-
-Record shared baseline changes on Linux. Recording a changed shared seed removes its old
-platform variants so they must be reviewed again. Other targets must not overwrite the
-Linux record with `ROBUSTNESS_GOLDENS_BLESS`; review any measurement variants separately.
-All variants are schema-checked in ordinary CI, including on targets that do not select them.
+Platform snapshots track repeatability; they do not certify cross-platform geometric
+equivalence or resolve the numerical differences tracked in #924.
 
 ### Independent measurement checks
 

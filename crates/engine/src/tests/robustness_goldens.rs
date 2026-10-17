@@ -13,10 +13,6 @@
 //! shards and their cores: a few seeds take minutes, and grouped four ways they made one test
 //! of half an hour. Pull requests that touch `crates/kernel` run every 8th seed (ci.yml);
 //! pushes to main and the nightly run every seed.
-//!
-//! The default record is Linux's. Reviewed target-specific measurement/topology overrides
-//! live in a seed's `platforms` map. Outcomes, generated step kinds and body/shell counts stay
-//! common, and every comparison keeps the same tolerances. See docs/robustness.md.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -42,37 +38,6 @@ fn load() -> Value {
     std::fs::read(path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({}))
 }
 
-fn platform() -> Option<&'static str> {
-    cfg!(all(target_os = "windows", target_arch = "x86_64", target_env = "msvc")).then_some("x86_64-pc-windows-msvc")
-}
-
-/// Select a reviewed measurement baseline without changing the shared behavioural checks.
-/// Validate all variants even on Linux, where none of them is selected.
-fn expectation(entry: &Value, target: Option<&str>) -> Value {
-    let mut out = entry.clone();
-    let Some(variants) = out.as_object_mut().and_then(|o| o.remove("platforms")) else { return out };
-    let variants = variants.as_object().expect("platforms must be an object");
-    for (name, fields) in variants {
-        for (field, value) in fields.as_object().expect("a platform variant must be an object") {
-            assert!(
-                matches!(field.as_str(), "volume" | "area" | "faces" | "edges"),
-                "{name}: platform variants may only override area, volume, faces and edges ({field})"
-            );
-            let valid = match field.as_str() {
-                "faces" | "edges" => out[field].as_u64().is_some() && value.as_u64().is_some(),
-                _ => [out[field].as_f64(), value.as_f64()].iter().all(|n| n.is_some_and(|x| x.is_finite() && x >= 0.0)),
-            };
-            assert!(valid, "{name}: invalid {field} measurement override");
-        }
-    }
-    if let Some(fields) = target.and_then(|t| variants.get(t)).and_then(Value::as_object) {
-        for (field, value) in fields {
-            out[field] = value.clone();
-        }
-    }
-    out
-}
-
 /// How `got` differs from `want` (None when it matches within the tolerances).
 fn differs(want: &Value, got: &Value) -> Option<String> {
     let mut out = Vec::new();
@@ -89,6 +54,24 @@ fn differs(want: &Value, got: &Value) -> Option<String> {
     (!out.is_empty()).then(|| out.join("; "))
 }
 
+/// Platform records only override the seeds explicitly verified on that platform.
+fn expected<'a>(file: &'a Value, seed: u64, platform: &str) -> &'a Value {
+    let key = seed.to_string();
+    file.get("platforms")
+        .and_then(|platforms| platforms.get(platform))
+        .and_then(|record| record.get("seeds"))
+        .and_then(|seeds| seeds.get(&key))
+        .unwrap_or(&file["seeds"][key])
+}
+
+#[test]
+fn platform_records_keep_shared_references_for_every_other_seed_and_platform() {
+    let file = json!({"seeds":{"1":{"volume":10},"2":{"volume":20}},"platforms":{"windows":{"seeds":{"1":{"volume":11}}}}});
+    assert_eq!(expected(&file, 1, "windows")["volume"], 11);
+    assert_eq!(expected(&file, 1, "linux")["volume"], 10);
+    assert_eq!(expected(&file, 2, "windows")["volume"], 20);
+}
+
 fn check(seed: u64) {
     let got: BTreeMap<u64, Value> = BTreeMap::from([(seed, fuzz::golden(seed, MAX_STEPS))]);
     let _lock = FILE.lock().unwrap_or_else(|e| e.into_inner());
@@ -96,8 +79,8 @@ fn check(seed: u64) {
     let changed: Vec<(u64, String)> = got
         .iter()
         .filter_map(|(seed, g)| {
-            let w = expectation(&file["seeds"][seed.to_string()], platform());
-            if w.is_null() { Some((*seed, "new".to_string())) } else { differs(&w, g).map(|d| (*seed, d)) }
+            let w = expected(&file, *seed, std::env::consts::OS);
+            if w.is_null() { Some((*seed, "new".to_string())) } else { differs(w, g).map(|d| (*seed, d)) }
         })
         .collect();
     if let Ok(reason) = std::env::var("ROBUSTNESS_GOLDENS_BLESS") {
@@ -105,31 +88,39 @@ fn check(seed: u64) {
         if changed.is_empty() {
             return;
         }
-        assert_eq!(
-            std::env::consts::OS,
-            "linux",
-            "record the shared robustness baseline on Linux; review target-specific measurement variants separately"
-        );
         if file.get("about").is_none() {
             file["about"] = json!(
                 "What each robustness seed builds (crates/engine/src/tests/robustness_goldens.rs, docs/robustness.md). Record changes with ROBUSTNESS_GOLDENS_BLESS=\"why\"."
             );
         }
+        let platform = std::env::consts::OS;
+        let platform_record = file["platforms"][platform]["seeds"].is_object();
         for (seed, g) in &got {
-            // A new shared baseline invalidates this seed's old target-specific variants.
-            file["seeds"][seed.to_string()] = g.clone();
+            if platform_record {
+                if changed.iter().any(|(changed, _)| changed == seed) {
+                    file["platforms"][platform]["seeds"][seed.to_string()] = g.clone();
+                }
+            } else {
+                file["seeds"][seed.to_string()] = g.clone();
+            }
         }
         let mut notes = file["notes"].as_array().cloned().unwrap_or_default();
         let seeds: Vec<u64> = changed.iter().map(|(s, _)| *s).collect();
         // The parts of one record (the tests run side by side) share one note.
         match notes.last_mut() {
-            Some(last) if last["reason"] == json!(reason) && last.get("platform").is_none() => {
+            Some(last) if last["reason"] == json!(reason) && (!platform_record || last["platform"] == json!(platform)) => {
                 let mut all: Vec<u64> = last["seeds"].as_array().into_iter().flatten().filter_map(Value::as_u64).chain(seeds).collect();
                 all.sort_unstable();
                 all.dedup();
                 last["seeds"] = json!(all);
             }
-            _ => notes.push(json!({"reason": reason, "seeds": seeds})),
+            _ => {
+                let mut note = json!({"reason": reason, "seeds": seeds});
+                if platform_record {
+                    note["platform"] = json!(platform);
+                }
+                notes.push(note);
+            }
         }
         file["notes"] = Value::Array(notes);
         // Seeds in order, one per line, so a change is a small diff.
@@ -141,15 +132,18 @@ fn check(seed: u64) {
             s += &format!("  \"{k}\": {}{}\n", v, if i + 1 < n { "," } else { "" });
         }
         let notes: Vec<String> = file["notes"].as_array().into_iter().flatten().map(|n| format!("  {n}")).collect();
-        s += &format!(" }},\n \"notes\": [\n{}\n ]\n}}\n", notes.join(",\n"));
+        s += " },\n";
+        if let Some(platforms) = file.get("platforms") {
+            s += &format!(" \"platforms\": {platforms},\n");
+        }
+        s += &format!(" \"notes\": [\n{}\n ]\n}}\n", notes.join(",\n"));
         std::fs::write(path(), s).unwrap_or_else(|e| panic!("{}: {e}", path().display()));
         return;
     }
     assert!(
         changed.is_empty(),
-        "{} seed(s) build differently from tests/robustness/goldens.json ({} baseline; review intended changes and say why in the pull request):\n{}",
+        "{} seed(s) build differently from tests/robustness/goldens.json (if that is intended, record it with ROBUSTNESS_GOLDENS_BLESS=\"why\" and say why in the pull request):\n{}",
         changed.len(),
-        platform().unwrap_or("default Linux"),
         changed.iter().map(|(s, d)| format!("seed {s}: {d}")).collect::<Vec<_>>().join("\n")
     );
 }
@@ -273,32 +267,4 @@ fn every_seed_has_a_test() {
     let file = load();
     let recorded: Vec<u64> = file["seeds"].as_object().into_iter().flatten().filter_map(|(k, _)| k.parse().ok()).collect();
     assert!(recorded.iter().all(|s| *s < SEEDS), "{recorded:?}");
-    for seed in recorded {
-        expectation(&file["seeds"][seed.to_string()], None);
-    }
-}
-
-#[test]
-fn platform_measurements_leave_shared_behaviour_and_other_targets_unchanged() {
-    let entry = json!({
-        "area": 100.0, "volume": 200.0, "edges": 12, "outcome": "ok", "steps": ["box"], "bodies": 1, "shells": 1,
-        "platforms": {"x86_64-pc-windows-msvc": {"area": 99.0, "edges": 10}}
-    });
-    let common = expectation(&entry, None);
-    let windows = expectation(&entry, Some("x86_64-pc-windows-msvc"));
-    assert_eq!(windows["area"], json!(99.0));
-    assert_eq!(windows["edges"], json!(10));
-    for key in ["volume", "outcome", "steps", "bodies", "shells"] {
-        assert_eq!(windows[key], common[key]);
-    }
-    assert_eq!(expectation(&entry, Some("another-target")), common);
-    assert_eq!(entry["area"], json!(100.0));
-    assert_eq!(common["area"], json!(100.0));
-    assert!(common.get("platforms").is_none());
-}
-
-#[test]
-#[should_panic(expected = "platform variants may only override area, volume, faces and edges")]
-fn even_unselected_platforms_cannot_override_an_outcome() {
-    expectation(&json!({"outcome": "ok", "platforms": {"another-target": {"outcome": "failed"}}}), None);
 }

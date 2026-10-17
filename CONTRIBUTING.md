@@ -10,7 +10,7 @@ Help is welcome, whether that's a one-line fix or owning a whole area. This page
 build it, how the code is laid out, the few rules that aren't negotiable, and where help is
 needed most.
 
-Questions, ideas or want to say what you're working on? Join the [Discord](https://solidcraft.io/discord).
+Questions, ideas or want to say what you're working on? Join the [Discord](https://discord.gg/FtU4NQNVDH).
 
 ## Get it running (about 10 minutes on a fast machine)
 
@@ -110,9 +110,10 @@ The [README](README.md#architecture) has the layer table. The short version:
    `cargo xtask assets` enforces this.
 4. **Never crash.** People trust a CAD app with their work.
    - Non-test code never uses `unwrap`, `expect`, `panic!` or indexing on input-derived data.
-     There's no `unsafe` outside `apps/solidcraft/src/open_documents.rs` (macOS file-open events)
-     and `apps/solidcraft/src/native_crash.rs` (Windows native crash capture), and the compiler
-     denies it.
+     There's no `unsafe` outside `apps/solidcraft/src/open_documents.rs` (macOS file-open events),
+     `apps/solidcraft/src/native_crash.rs` (Windows native crash capture) and
+     `crates/threedx-client/src/macos.rs` (the 3Dconnexion driver's client API on macOS), and the
+     compiler denies it.
    - An unsupported case returns an error ("not supported yet: …"); it never panics.
    - Every call into truck goes through `solidcraft_kernel::guard`.
    - Every crash fix comes with a regression test.
@@ -300,7 +301,7 @@ long as the change meets the rules above.
 
 ## Where help is wanted most
 
-**Kernel speed (slow fillets, booleans, STEP):** please don't rewrite the current kernel code for speed; it is being replaced by [solidcore](https://github.com/bherbruck/solidcore) ([progress](https://bherbruck.github.io/solidcore/)). Report slow cases with a file under the `kernel-perf` label, and put kernel effort into solidcore instead. See [#1597](https://github.com/tangency-labs/solidcraft/issues/1597).
+**Kernel speed (slow fillets, booleans, STEP):** please don't rewrite the current kernel code for speed; it is being replaced by [solidcore](https://github.com/bherbruck/solidcore) ([progress](https://tangency-labs.github.io/solidcore/)). Report slow cases with a file under the `kernel-perf` label, and put kernel effort into solidcore instead. See [#1597](https://github.com/tangency-labs/solidcraft/issues/1597).
 
 See the [`help wanted`](https://github.com/tangency-labs/solidcraft/labels/help%20wanted) and
 [`good first issue`](https://github.com/tangency-labs/solidcraft/labels/good%20first%20issue) labels.
