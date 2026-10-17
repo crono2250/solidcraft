@@ -1,0 +1,113 @@
+name: PR 1950 targeted geometry verification
+on:
+  push:
+    branches: [qa/pr1950-geometry-checks]
+permissions:
+  contents: read
+jobs:
+  geometry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      RUST_TEST_THREADS: '2'
+      RAYON_NUM_THREADS: '2'
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ab9903c83245455fb74ecaed381f30977aeb64c1
+      - run: test "$(git rev-parse HEAD)" = ab9903c83245455fb74ecaed381f30977aeb64c1
+      - uses: dtolnay/rust-toolchain@ff7f6a3374ce205788da40198ec918bd5d67aea7
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          key: native-tests
+          save-if: false
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+        with:
+          version: v0.16.0
+      - name: Selected snapshots, platform guards and independent physical checks
+        run: |
+          cargo test --locked --profile ci -p solidcraft-engine --lib -- fuzz::tests:: tests::robustness_goldens::platform_ tests::robustness_goldens::even_unselected tests::robustness_goldens::every_seed tests::robustness_goldens::seed_01 tests::robustness_goldens::seed_13 tests::robustness_goldens::seed_23 tests::robustness_goldens::seed_34 tests::robustness_goldens::seed_67 tests::robustness_goldens::seed_94 --test-threads=2
+      - name: Saved edge-contact scale regression
+        run: cargo test --locked --profile ci -p solidcraft-kernel --test boolean_props edge_only_box_contact_is_scale_invariant -- --exact --test-threads=2
+      - name: Replay exact captured Windows commands on Linux
+        run: |
+          mkdir -p crates/engine/examples
+          cat > crates/engine/examples/pr1950_platform_probe.rs <<'PR1950_RUST'
+          use serde_json::{Value, json};
+          use solidcraft_engine::{Session, fuzz};
+          
+          fn decode_floats(v: &mut Value) {
+              if let Some(hex) = v.as_object().filter(|m| m.len() == 1).and_then(|m| m.get("__f64_bits")).and_then(Value::as_str) {
+                  *v = json!(f64::from_bits(u64::from_str_radix(hex, 16).unwrap()));
+                  return;
+              }
+              match v {
+                  Value::Array(a) => a.iter_mut().for_each(decode_floats),
+                  Value::Object(m) => m.values_mut().for_each(decode_floats),
+                  _ => {}
+              }
+          }
+          
+          fn replay(script: &Value) -> Value {
+              let mut s = Session::default();
+              for item in script.as_array().unwrap() {
+                  s.execute(item["command"].as_str().unwrap(), &item["params"]).unwrap();
+                  for b in &s.model.state().bodies {
+                      assert!(b.body.validity().is_empty(), "invalid body after {}", item["command"]);
+                  }
+              }
+              let mut volume = 0.0;
+              let mut area = 0.0;
+              let mut faces = 0;
+              let mut edges = 0;
+              let mut shells = 0;
+              let state = s.model.state();
+              for b in &state.bodies {
+                  let m = solidcraft_kernel::measure(&b.body).unwrap();
+                  volume += m.volume;
+                  area += m.area;
+                  faces += m.faces;
+                  edges += m.edges;
+                  shells += m.shells;
+              }
+              json!({"volume":volume,"area":area,"faces":faces,"edges":edges,"shells":shells,"bodies":state.bodies.len()})
+          }
+          
+          fn main() {
+              let args: Vec<_> = std::env::args().collect();
+              let mut captured: Value = serde_json::from_slice(&std::fs::read(&args[1]).unwrap()).unwrap();
+              decode_floats(&mut captured);
+              let mut results = Vec::new();
+              for seed in [13_u64, 94] {
+                  let run = fuzz::run(seed, 8);
+                  assert_eq!(run.outcome.kind, "ok");
+                  let native_script = run.script();
+                  let native = replay(&native_script);
+                  let windows_script = &captured[seed.to_string()]["script"];
+                  let windows = replay(windows_script);
+                  let result = json!({"seed":seed,"native_script":native_script,"native_replay":native,"windows_script":windows_script,"windows_replay":windows});
+                  println!("{result}");
+                  results.push(result);
+              }
+              std::fs::write(&args[2], serde_json::to_vec_pretty(&results).unwrap()).unwrap();
+          }
+          PR1950_RUST
+          cat > "$RUNNER_TEMP/pr1950-windows-recipes.json" <<'PR1950_JSON'
+          {"13":{"script":[{"command":"sketch.create","params":{"plane":"XZ"}},{"command":"sketch.rectangle.two_point","params":{"p0":[{"__f64_bits":"4014000000000000"},0],"p1":[{"__f64_bits":"4029000000000000"},{"__f64_bits":"4024000000000000"}]}},{"command":"sketch.finish","params":{}},{"command":"solid.revolve","params":{"angle":"180 deg","axis":"Z"}},{"command":"solid.cylinder","params":{"axis":[{"__f64_bits":"0000000000000000"},{"__f64_bits":"0000000000000000"},{"__f64_bits":"bff0000000000000"}],"base":[{"__f64_bits":"c014000000000000"},{"__f64_bits":"4029000000000000"},{"__f64_bits":"c024000000000000"}],"height":{"__f64_bits":"4034000000000000"},"operation":"cut","radius":{"__f64_bits":"401e000000000000"}}},{"command":"solid.box","params":{"corner":[{"__f64_bits":"c014000000000000"},{"__f64_bits":"0000000000000000"},{"__f64_bits":"0000000000000000"}],"height":{"__f64_bits":"401e000000000000"},"length":{"__f64_bits":"4004000000000000"},"operation":"join","width":{"__f64_bits":"4039000000000000"}}},{"command":"solid.pattern.rectangular","params":{"count1":2,"dir1":[{"__f64_bits":"3ff0000000000000"},{"__f64_bits":"0000000000000000"},{"__f64_bits":"0000000000000000"}],"features":["Box1"],"spacing1":{"__f64_bits":"4024000000000000"}}},{"command":"solid.cylinder","params":{"axis":[{"__f64_bits":"0000000000000000"},{"__f64_bits":"0000000000000000"},{"__f64_bits":"bff0000000000000"}],"base":[{"__f64_bits":"c014000000000000"},{"__f64_bits":"bd14000000000000"},{"__f64_bits":"4014000000000000"}],"height":{"__f64_bits":"401e000000000000"},"operation":"cut","radius":{"__f64_bits":"4021800000000000"}}},{"command":"solid.box","params":{"corner":[{"__f64_bits":"c004000000000000"},{"__f64_bits":"bd1267c45f5f64b8"},{"__f64_bits":"401e000000000000"}],"height":{"__f64_bits":"4034000000000000"},"length":{"__f64_bits":"4034000000000000"},"operation":"cut","width":{"__f64_bits":"4039000000000000"}}},{"command":"solid.fillet","params":{"edges":[[{"__f64_bits":"c00e2a9896f0cdd0"},{"__f64_bits":"4027d5da0a2f7fa8"},{"__f64_bits":"c0240000000002fa"}]],"radius":{"__f64_bits":"4004000000000000"}}},{"command":"solid.hole","params":{"diameter":{"__f64_bits":"4018000000000000"},"position":[{"__f64_bits":"3ffdcbf803ba7e17"},{"__f64_bits":"40212f7d38af10ca"},{"__f64_bits":"0000000000000000"}]}}]},"94":{"script":[{"command":"sketch.create","params":{"plane":"XZ"}},{"command":"sketch.rectangle.two_point","params":{"p0":[{"__f64_bits":"4014000000000000"},0],"p1":[{"__f64_bits":"4034000000000000"},{"__f64_bits":"4014000000000000"}]}},{"command":"sketch.finish","params":{}},{"command":"solid.revolve","params":{"angle":"360 deg","axis":"Z"}},{"command":"solid.cylinder","params":{"axis":[{"__f64_bits":"3ff0000000000000"},{"__f64_bits":"0000000000000000"},{"__f64_bits":"0000000000000000"}],"base":[{"__f64_bits":"4034000000000001"},{"__f64_bits":"c024000000000000"},{"__f64_bits":"c004000000000000"}],"height":{"__f64_bits":"4039000000000000"},"operation":"cut","radius":{"__f64_bits":"400e000000000000"}}},{"command":"solid.fillet","params":{"edges":[[{"__f64_bits":"c014000000000000"},{"__f64_bits":"3ce9000000000000"},{"__f64_bits":"c014000000000000"}],[{"__f64_bits":"4003ffffffffffff"},{"__f64_bits":"4011520cd1372fe9"},{"__f64_bits":"c014000000000000"}]],"radius":{"__f64_bits":"3ff0000000000000"}}},{"command":"solid.hole","params":{"diameter":{"__f64_bits":"4018000000000000"},"position":[{"__f64_bits":"bcc85e5972144765"},{"__f64_bits":"3cc2eddc565452e3"},{"__f64_bits":"0000000000000000"}]}},{"command":"solid.pattern.rectangular","params":{"count1":2,"dir1":[{"__f64_bits":"3ff0000000000000"},{"__f64_bits":"0000000000000000"},{"__f64_bits":"0000000000000000"}],"features":["Hole1"],"spacing1":{"__f64_bits":"4014000000000000"}}},{"command":"solid.box","params":{"corner":[{"__f64_bits":"402e000000000000"},{"__f64_bits":"4014000000000000"},{"__f64_bits":"c004000000000000"}],"height":{"__f64_bits":"4004000000000000"},"length":{"__f64_bits":"4039000000000000"},"operation":"cut","width":{"__f64_bits":"4029000000000000"}}},{"command":"solid.box","params":{"corner":[{"__f64_bits":"4029000000000000"},{"__f64_bits":"c033fde1ac3b9ff6"},{"__f64_bits":"c004000000000000"}],"height":{"__f64_bits":"4014000000000000"},"length":{"__f64_bits":"4034000000000000"},"operation":"cut","width":{"__f64_bits":"4039000000000000"}}}]}}
+          PR1950_JSON
+          cargo run --locked --profile ci -p solidcraft-engine --example pr1950_platform_probe -- "$RUNNER_TEMP/pr1950-windows-recipes.json" "$RUNNER_TEMP/pr1950-replays.json"
+          python3 - "$RUNNER_TEMP/pr1950-replays.json" <<'PR1950_PY'
+          import json,sys
+          data=json.load(open(sys.argv[1]))
+          for item in data:
+              print(json.dumps({k:v for k,v in item.items() if k not in ['native_script','windows_script']},sort_keys=True))
+              print('seed',item['seed'],'native command stream equals captured Windows stream:',item['native_script']==item['windows_script'])
+          PR1950_PY
+      - name: Compiler cache statistics
+        if: always()
+        run: sccache --show-stats
