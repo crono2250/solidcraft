@@ -30,6 +30,7 @@ jobs:
         with:
           version: v0.16.0
       - name: Rechecked snapshots and independent physical checks
-        run: cargo test --locked --profile ci -p solidcraft-engine --lib -- fuzz::tests:: tests::robustness_goldens::platform_ tests::robustness_goldens::every_seed tests::robustness_goldens::seed_01 tests::robustness_goldens::seed_13 tests::robustness_goldens::seed_23 tests::robustness_goldens::seed_28 tests::robustness_goldens::seed_34 tests::robustness_goldens::seed_67 tests::robustness_goldens::seed_94 tests::robustness_goldens::seed_95 --test-threads=2
+        run: |
+          cargo test --locked --profile ci -p solidcraft-engine --lib -- fuzz::tests:: tests::robustness_goldens::platform_ tests::robustness_goldens::every_seed tests::robustness_goldens::seed_01 tests::robustness_goldens::seed_13 tests::robustness_goldens::seed_23 tests::robustness_goldens::seed_28 tests::robustness_goldens::seed_34 tests::robustness_goldens::seed_67 tests::robustness_goldens::seed_94 tests::robustness_goldens::seed_95 --test-threads=2
       - name: Saved edge-contact scale regression
         run: cargo test --locked --profile ci -p solidcraft-kernel --test boolean_props edge_only_box_contact_is_scale_invariant -- --exact --test-threads=2
