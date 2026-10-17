@@ -1,4 +1,4 @@
-name: PR 1950 rebased geometry verification
+name: PR 1950 unchanged-main comparison
 on:
   push:
     branches: [qa/pr1950-geometry-checks]
@@ -8,6 +8,15 @@ jobs:
   geometry:
     runs-on: ubuntu-24.04
     timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - role: PR
+            source: 570884cfad9a8bda4be87d3a8725bc230312a712
+          - role: unchanged-main
+            source: 712b427a9c510d7f83a9806a3ae86035e08d4219
+    name: ${{ matrix.role }}
     env:
       CARGO_BUILD_JOBS: '2'
       CARGO_INCREMENTAL: '0'
@@ -19,8 +28,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 749dd779df48fbbba199236a075d3f135f7d4460
-      - run: test "$(git rev-parse HEAD)" = 749dd779df48fbbba199236a075d3f135f7d4460
+          ref: ${{ matrix.source }}
+      - run: test "$(git rev-parse HEAD)" = '${{ matrix.source }}'
       - uses: dtolnay/rust-toolchain@ff7f6a3374ce205788da40198ec918bd5d67aea7
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
@@ -29,8 +38,10 @@ jobs:
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
         with:
           version: v0.16.0
-      - name: Rechecked snapshots and independent physical checks
-        run: |
-          cargo test --locked --profile ci -p solidcraft-engine --lib -- fuzz::tests:: tests::robustness_goldens::platform_ tests::robustness_goldens::every_seed tests::robustness_goldens::seed_01 tests::robustness_goldens::seed_13 tests::robustness_goldens::seed_23 tests::robustness_goldens::seed_28 tests::robustness_goldens::seed_34 tests::robustness_goldens::seed_67 tests::robustness_goldens::seed_94 tests::robustness_goldens::seed_95 --test-threads=2
       - name: Saved edge-contact scale regression
+        if: matrix.role == 'PR'
         run: cargo test --locked --profile ci -p solidcraft-kernel --test boolean_props edge_only_box_contact_is_scale_invariant -- --exact --test-threads=2
+      - name: Three existing snapshots in isolation
+        run: |
+          rustc --version
+          cargo test --locked --profile ci -p solidcraft-engine --lib -- tests::robustness_goldens::seed_13 tests::robustness_goldens::seed_67 tests::robustness_goldens::seed_94 --test-threads=1
