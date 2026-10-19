@@ -1258,6 +1258,11 @@ pub fn timeline_joints_vertical(app: &mut SolveApp, ui: &mut egui::Ui) {
     let mut run = None;
     for (id, name, kind, suppressed) in joints {
         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), egui::Sense::click());
+        // Keep the scroll extent and row IDs, but only lay out icons, text and menus for
+        // joints in the clipped viewport (an imported assembly can have thousands).
+        if !ui.is_rect_visible(rect) {
+            continue;
+        }
         if response.hovered() {
             ui.painter().rect_filled(rect, 3.0, t.hover);
         }
