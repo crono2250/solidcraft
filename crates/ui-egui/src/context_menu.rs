@@ -859,6 +859,15 @@ fn explode_text(app: &SolveApp) -> Option<Item> {
     Some(cmd(app, "sketch.break_link", "Explode Text").with(json!({ "link": link })))
 }
 
+fn alignment_items(selection: &[Sel]) -> Vec<Item> {
+    let Some(points) = crate::selection::alignment_points(selection) else { return Vec::new() };
+    vec![
+        act("ui.horizontalConstraint", "Horizontal Constraint", "c_hv")
+            .with(json!({"points": points, "mode": "horizontal", "if_redundant": "refuse"})),
+        act("ui.verticalConstraint", "Vertical Constraint", "c_hv").with(json!({"points": points, "mode": "vertical", "if_redundant": "refuse"})),
+    ]
+}
+
 /// Sketch entity items: construction, fix, delete, dimension and the constraints the selection
 /// can take.
 fn sketch_entity_items(app: &SolveApp) -> Vec<Item> {
@@ -866,6 +875,9 @@ fn sketch_entity_items(app: &SolveApp) -> Vec<Item> {
     let Some(sid) = app.session.active_sketch else { return Vec::new() };
     let st = app.session.world_state();
     let Some(ss) = st.sketch(sid) else { return Vec::new() };
+    if app.session.selection.iter().any(|sel| matches!(sel, Sel::SketchMidpoint { .. })) {
+        return alignment_items(&app.session.selection);
+    }
     let mut lines = Vec::new();
     let mut rounds = Vec::new();
     let mut curves = Vec::new();
@@ -951,7 +963,7 @@ fn sketch_entity_items(app: &SolveApp) -> Vec<Item> {
     }
     if p == 2 && n == 2 {
         c.push(cmd(app, "sketch.constraint.coincident", "Coincident").with(json!({ "a": points[0], "b": points[1] })));
-        c.push(cmd(app, "sketch.constraint.horizontal_vertical", "Horizontal/Vertical").with(json!({ "points": points })));
+        c.extend(alignment_items(&app.session.selection));
     }
     if p == 1 && curves.len() == 1 && n == 2 {
         c.push(cmd(app, "sketch.constraint.coincident", "Coincident").with(json!({ "a": picked[0], "b": picked[1] })));
@@ -1021,6 +1033,13 @@ pub fn run_item(app: &mut SolveApp, item: &Item, at: Pos2) {
         }
         "ui.delete" if item.params.is_some() => crate::delete::request(app, p),
         "ui.delete" => delete(app),
+        "ui.horizontalConstraint" | "ui.verticalConstraint" => {
+            let selection = app.session.selection.clone();
+            let keep_midpoints = selection.iter().any(|s| matches!(s, Sel::SketchMidpoint { .. }));
+            if app.run("sketch.constraint.horizontal_vertical", p).is_ok() && keep_midpoints {
+                let _ = app.run("select.set", json!({"items": selection}));
+            }
+        }
         "ui.finishSketch" => app.finish_sketch(),
         "ui.cancelSketch" => app.cancel_sketch(),
         "ui.relinkSource" => {
@@ -1494,6 +1513,14 @@ pub(crate) fn commit_rename(app: &mut SolveApp, r: &Rename) {
 // Opening and showing
 // ---------------------------------------------------------------------------------------------
 
+/// Right-clicking the MID of an already selected edge keeps that geometry selection.
+fn context_target_selected(selection: &[Sel], target: &Sel) -> bool {
+    selection.iter().any(|selected| {
+        crate::selection::same_item(selected, target)
+            || matches!((selected, target), (Sel::SketchCurve { id: a }, Sel::SketchMidpoint { id: b }) if a == b)
+    })
+}
+
 /// Open the viewport menu at a screen position. A right-click on something not selected
 /// selects it first, so the menu is about what is under the cursor; a face or edge already in a
 /// multi-selection keeps the whole selection (#3733).
@@ -1516,8 +1543,9 @@ pub fn open(app: &mut SolveApp, at: Pos2) {
     } else if app.session.active_sketch.is_some()
         && let Some(h) = app.viewport.hover.clone()
         && let Some((_, sel)) = crate::viewport::candidate(app, &[h])
-        && (matches!(sel, Sel::SketchCurve { .. } | Sel::SketchPoint { .. }) || crate::sketch_text::entity_for_selection(app, &sel).is_some())
-        && !selected(app, &sel)
+        && (matches!(sel, Sel::SketchCurve { .. } | Sel::SketchPoint { .. } | Sel::SketchMidpoint { .. })
+            || crate::sketch_text::entity_for_selection(app, &sel).is_some())
+        && !context_target_selected(&app.session.selection, &sel)
     {
         let _ = app.run("select.set", json!({ "items": [sel] }));
     }
