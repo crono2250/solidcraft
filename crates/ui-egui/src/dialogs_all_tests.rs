@@ -60,7 +60,9 @@ fn representative(h: &Harness, command: &str) -> Dialog {
         } else if input.accept & CURVES != 0 || command == "sheet.fold" && index == 0 {
             vec![Sel::SketchCurve { id: path.clone() }]
         } else if input.accept & AXES != 0 {
-            vec![Sel::Axis { name: "Z".into() }]
+            // The Revolve fixture's profile is in XY; its preview needs an axis in that plane.
+            let axis = if command == "solid.revolve" { "Y" } else { "Z" };
+            vec![Sel::Axis { name: axis.into() }]
         } else if input.accept & (FACES | PLANAR_FACES) != 0 {
             vec![face_sel(s, point).unwrap()]
         } else if input.accept & EDGES != 0 {
@@ -291,6 +293,20 @@ fn registry_dialog_inventory_has_no_unclassified_feature_forms() {
         let Some(d) = Dialog::for_command(&h.app, spec.id) else { continue };
         assert!(super::command(&d.kind).is_some(), "{}: {:?}", spec.id, d.kind);
     }
+}
+
+#[test]
+fn revolve_layout_fixture_builds_a_valid_solid() {
+    let mut h = fixture();
+    let d = representative(&h, "solid.revolve");
+    let before = h.app.session.model.results.len();
+    let commands = crate::dialogs::preview_commands(&h.app, &d).unwrap();
+    assert!(!commands.is_empty());
+    for (command, params) in commands {
+        h.app.run(&command, params).unwrap();
+    }
+    assert!(h.app.session.model.results.len() > before);
+    assert!(h.app.session.model.results.iter().all(|result| result.error.is_none()));
 }
 
 #[test]

@@ -181,8 +181,23 @@ mod tests {
         let mut c = Command::new(std::env::current_exe().unwrap());
         c.args(["--exact", "test_nextest::tests::subprocess_fixture", "--test-threads=1"])
             .env("SOLIDCRAFT_XTASK_TEST_MARKER", path)
-            .env("SOLIDCRAFT_XTASK_TEST_FAIL", if fail { "1" } else { "0" });
+            .env("SOLIDCRAFT_XTASK_TEST_FAIL", if fail { "1" } else { "0" })
+            // Keep nested libtest reports out of the parent harness transcript.
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         c
+    }
+
+    #[test]
+    fn subprocess_regressions_leave_one_unambiguous_test_report() {
+        let out = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "test_nextest::tests::failures_propagate_without_skipping_later_side_gates", "--test-threads=1"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(stdout.lines().filter(|line| line.starts_with("test result:")).count(), 1, "{stdout:?}");
+        assert!(!stdout.contains("test test_nextest::tests::subprocess_fixture"), "{stdout:?}");
     }
 
     #[test]
