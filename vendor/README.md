@@ -335,3 +335,13 @@ SolidCraft changes:
   error scopes, awaiting every result before returning it. A refused UI pipeline (D3D12
   `egui_pipeline` shader compilation, #6648) returns `WgpuError::CreateRendererError` through
   eframe so startup can retry another backend instead of invoking wgpu's panic handler.
+
+
+## parasolid-core 0.3.5
+
+The schema-framed X_B reader in `parasolid-core/` is the published 0.3.5 crate
+from https://github.com/monozukuri-ai/parasolid-kit, licensed MIT AND Apache-2.0.
+Both original license texts are included. It has no runtime dependencies.
+`SOLIDCRAFT-PATCH.md` records the additional exact SolidWorks schema profile,
+its canonical definition hash, and the admission tests. No private CAD fixtures
+are distributed. SolidCraft's source B-rep to AP214 conversion is local code.

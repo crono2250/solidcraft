@@ -24,6 +24,8 @@ pub mod limits;
 #[cfg(test)]
 mod mutate;
 mod native_cad;
+#[cfg(not(target_arch = "wasm32"))]
+pub use native_cad::assembly as solidworks_assembly;
 pub use native_cad::{NATIVE_CAD_EXTS, is_native_cad_path, native_cad_to_step};
 pub mod paper;
 pub mod safe_write;
