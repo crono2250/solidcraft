@@ -906,6 +906,10 @@ preference_settings! {
     max_step_file_mb: u64 = DEFAULT_STEP_MB, PAGE_GENERAL;
     /// The largest design file opened or saved, in MB (#4086): from the default (256) up to 16 GB.
     max_design_file_mb: u64 = DEFAULT_DESIGN_MB, PAGE_GENERAL;
+    /// Degrees per step near the assembly Move ring.
+    joint_rotation_coarse: f64 = 10.0, PAGE_DESIGN;
+    /// Degrees per step after pulling the cursor outside the precision guide.
+    joint_rotation_fine: f64 = 0.1, PAGE_DESIGN;
     /// `dark`, `light` or `system` (follow the operating system), or a theme file's id: a
     /// built-in one (`gruvbox-dark`, …) or one of `custom_themes` (#2255).
     theme: String = "dark".into(), PAGE_INTERFACE;
@@ -2927,6 +2931,12 @@ pub fn migrate(mut p: Prefs) -> Prefs {
     let valid_resource = |(kind, id): &(String, String)| !kind.is_empty() && kind.len() <= 64 && !id.is_empty() && id.len() <= 4096;
     p.render_library_favorites = p.render_library_favorites.into_iter().filter(valid_resource).take(256).collect();
     p.render_library_recent = p.render_library_recent.into_iter().filter(valid_resource).take(32).collect();
+    if !p.joint_rotation_coarse.is_finite() || !(0.001..=180.0).contains(&p.joint_rotation_coarse) {
+        p.joint_rotation_coarse = 10.0;
+    }
+    if !p.joint_rotation_fine.is_finite() || !(0.001..=180.0).contains(&p.joint_rotation_fine) {
+        p.joint_rotation_fine = 0.1;
+    }
     if p.orbit_cursor {
         p.orbit_around = OrbitAround::Cursor;
         p.orbit_cursor = false;
@@ -2985,6 +2995,13 @@ pub fn lenient(saved: &serde_json::Value) -> Prefs {
 
 /// Set preferences from JSON (control channel); returns them all.
 pub fn set(app: &mut SolveApp, p: &serde_json::Value) -> Result<serde_json::Value, String> {
+    for key in ["joint_rotation_coarse", "joint_rotation_fine"] {
+        if let Some(value) = p.get(key)
+            && value.as_f64().is_none_or(|v| !v.is_finite() || !(0.001..=180.0).contains(&v))
+        {
+            return Err(format!("`{key}` must be 0.001…180 degrees"));
+        }
+    }
     let mut cur = serde_json::to_value(&app.preferences).map_err(|e| e.to_string())?;
     if let (Some(o), Some(src)) = (cur.as_object_mut(), p.as_object()) {
         for (k, v) in src {
