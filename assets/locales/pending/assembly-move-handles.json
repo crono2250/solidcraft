@@ -8,11 +8,13 @@
     "joint_move.fine": "Far-axis rotation step (°)",
     "joint_move.fixed": "This part has no movable joint axis.",
     "joint_move.help": "Move — drag an arrow or ring. Esc cancels the current drag.",
+    "joint_move.legacy_hint": "Turn off to use the previous Move panel.",
     "joint_move.precision": "Pull outside the dashed guide for fine rotation.",
     "joint_move.rotation": "Rotation from start",
     "joint_move.select": "Select a face or one assembly part, then choose Move.",
     "joint_move.settings": "Assembly Move",
-    "joint_move.step": "Step"
+    "joint_move.step": "Step",
+    "joint_move.use_handles": "Use joint motion handles for assembly Move"
   },
   "ja": {
     "joint_move.blocked_hint": "Rigid合致、部品の固定状態、ジョイントの制限値、パラメーターでの拘束を確認してください。",
@@ -23,11 +25,13 @@
     "joint_move.fine": "軸から遠い位置の回転刻み（°）",
     "joint_move.fixed": "この部品には操作できるジョイントの自由度がありません。",
     "joint_move.help": "移動 — 矢印または円弧をドラッグ。Escでドラッグを取消。",
+    "joint_move.legacy_hint": "オフにすると従来の移動パネルを使います。",
     "joint_move.precision": "破線ガイドの外側へ引くと回転を微調整できます。",
     "joint_move.rotation": "開始位置からの回転角",
     "joint_move.select": "面またはアセンブリ部品を1つ選択してから移動を実行してください。",
     "joint_move.settings": "アセンブリの移動",
-    "joint_move.step": "刻み"
+    "joint_move.step": "刻み",
+    "joint_move.use_handles": "アセンブリの移動にジョイントの操作ハンドルを使う"
   },
   "zh": {
     "joint_move.blocked_hint": "请检查关节类型（例如 Rigid）、固定状态、关节限位和参数驱动值。",
@@ -38,10 +42,12 @@
     "joint_move.fine": "远离轴线时的旋转步长（°）",
     "joint_move.fixed": "此零部件没有可操作的关节自由度。",
     "joint_move.help": "移动 — 拖动箭头或圆弧。按 Esc 取消当前拖动。",
+    "joint_move.legacy_hint": "关闭后使用原有的移动面板。",
     "joint_move.precision": "将光标移到虚线引导圈外侧可微调旋转。",
     "joint_move.rotation": "相对起点的旋转角度",
     "joint_move.select": "请选择一个面或一个装配零部件，然后执行移动。",
     "joint_move.settings": "装配移动",
-    "joint_move.step": "步长"
+    "joint_move.step": "步长",
+    "joint_move.use_handles": "装配移动使用关节运动手柄"
   }
 }

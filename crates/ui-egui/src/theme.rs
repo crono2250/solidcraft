@@ -919,6 +919,8 @@ impl Tokens {
             body: view.body,
             body_edge: view.body_edge,
             manipulator: view.manipulator,
+            joint_manipulator: view.joint_manipulator,
+            joint_axis: view.joint_axis,
             preview_add: view.preview_add,
             preview_new: view.preview_new,
             preview_sketch: view.preview_sketch,
@@ -1334,6 +1336,7 @@ mod tests {
                     (t.box_window, t.section_cap, t.preview_add, t.sketch_construction, t.continuity),
                     (v.box_window, v.section_cap, v.preview_add, v.sketch_construction, v.continuity)
                 );
+                assert_eq!((t.joint_manipulator, t.joint_axis), (v.joint_manipulator, v.joint_axis));
                 assert_eq!(t.analysis, v.analysis);
                 // The window's: panels, text, accents, dialogs, and the chips over the view with
                 // their borders and icons.

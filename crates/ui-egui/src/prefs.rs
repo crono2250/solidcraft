@@ -906,6 +906,8 @@ preference_settings! {
     max_step_file_mb: u64 = DEFAULT_STEP_MB, PAGE_GENERAL;
     /// The largest design file opened or saved, in MB (#4086): from the default (256) up to 16 GB.
     max_design_file_mb: u64 = DEFAULT_DESIGN_MB, PAGE_GENERAL;
+    /// Explicit assembly Move uses joint handles; off keeps the previous Move panel.
+    assembly_move_handles: bool = true, PAGE_DESIGN => check_id("joint_move.use_handles");
     /// Degrees per step near the assembly Move ring.
     joint_rotation_coarse: f64 = 10.0, PAGE_DESIGN;
     /// Degrees per step after pulling the cursor outside the precision guide.

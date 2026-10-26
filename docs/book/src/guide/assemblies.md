@@ -53,6 +53,9 @@ Change both step sizes under **Preferences → Design → Assembly Move**. Each 
 undo step; Escape while dragging restores its starting pose. **Done** (or Escape when idle)
 closes the handles.
 
+To use the previous Move panel, turn off **Use joint motion handles for assembly Move**
+in the same settings section.
+
 Paste New copies nested component definitions, sketches, feature histories and generated
 dimension parameters. Repeated child instances remain shared within the new copy. Materials,
 appearances and wholly internal joints/motion records receive copied references. Design-wide

@@ -90,7 +90,7 @@ pub(crate) fn selected_path(app: &SolveApp) -> Option<Vec<u64>> {
 /// Both Assemble > Move and the context menu enter here; picking a face alone never does.
 pub(crate) fn begin(app: &mut SolveApp, occurrence: u64) -> bool {
     close(app);
-    if app.session.active_sketch.is_some() || app.applying.is_some() {
+    if !app.preferences.assembly_move_handles || app.session.active_sketch.is_some() || app.applying.is_some() {
         return false;
     }
     let world = joints::occurrence_world(&app.session.doc, occurrence);
@@ -166,6 +166,10 @@ impl Mode {
 
 /// A new selection or changed constraints must not leave handles for a stale part or pose.
 pub(crate) fn sync(app: &mut SolveApp) {
+    if !app.preferences.assembly_move_handles {
+        close(app);
+        return;
+    }
     let Some(mut mode) = app.viewport.joint_handles.take() else { return };
     if mode.drag.is_none() {
         if selected_occurrence(app) != Some(mode.occurrence) {
@@ -190,7 +194,7 @@ pub(crate) fn start(app: &mut SolveApp) {
         return;
     }
     let jointed = app.session.doc.assembly.joints.iter().any(|j| !j.suppressed && (j.a.occurrence == occurrence || j.b.occurrence == occurrence));
-    if !jointed
+    if (!app.preferences.assembly_move_handles || !jointed)
         && let Some(path) = selected_path(app)
         && let Some(item) = crate::context_menu::items(app, &crate::context_menu::Target::Occurrence { path })
             .into_iter()
@@ -332,7 +336,7 @@ impl Arrow {
     }
 
     fn paint(&self, painter: &egui::Painter, color: egui::Color32) {
-        let outline = Tokens::get().icons.marker_halo;
+        let outline = Tokens::view().icons.marker_halo;
         painter.add(Shape::line(self.shaft.clone(), Stroke::new(SHAFT_WIDTH + 4.0, outline)));
         painter.add(Shape::line(self.shaft.clone(), Stroke::new(SHAFT_WIDTH, color)));
         painter.add(Shape::convex_polygon(self.head.to_vec(), color, Stroke::NONE));
@@ -918,6 +922,42 @@ mod tests {
     }
 
     #[test]
+    fn disabling_handles_restores_the_previous_move_panel_from_both_entry_points() {
+        let (mut h, _) = assembly("revolute", Vec3::Z, false);
+        let before = h.app.session.doc.to_json();
+        let undo = h.app.session.undo.len();
+        h.app.start("occurrence.move");
+        h.frames(2);
+        assert!(visible(&h.app));
+        crate::prefs::set(&mut h.app, &json!({"assembly_move_handles":false})).unwrap();
+        h.frames(2);
+        assert!(h.app.viewport.joint_handles.is_none());
+        for context in [false, true] {
+            h.app.tree.occurrence_move = None;
+            if context {
+                let path = selected_path(&h.app).unwrap();
+                let item = crate::context_menu::items(&h.app, &crate::context_menu::Target::Occurrence { path })
+                    .into_iter()
+                    .find(|item| item.id == "ui.moveOccurrence" && item.enabled)
+                    .unwrap();
+                crate::context_menu::run_item(&mut h.app, &item, Pos2::ZERO);
+            } else {
+                h.app.start("occurrence.move");
+            }
+            h.frames(2);
+            assert!(h.app.viewport.joint_handles.is_none());
+            assert!(h.app.tree.occurrence_move.is_some());
+            assert_eq!(h.app.session.doc.to_json(), before);
+            assert_eq!(h.app.session.undo.len(), undo);
+        }
+        h.app.tree.occurrence_move = None;
+        crate::prefs::set(&mut h.app, &json!({"assembly_move_handles":true})).unwrap();
+        h.app.start("occurrence.move");
+        h.frames(2);
+        assert!(visible(&h.app));
+    }
+
+    #[test]
     fn precision_settings_persist_validate_and_read_old_preferences() {
         let mut app = SolveApp::new(Default::default(), Default::default());
         for key in ["joint_rotation_coarse", "joint_rotation_fine"] {
@@ -926,11 +966,14 @@ mod tests {
             }
         }
         crate::prefs::set(&mut app, &json!({"joint_rotation_coarse":12.5,"joint_rotation_fine":0.25})).unwrap();
+        crate::prefs::set(&mut app, &json!({"assembly_move_handles":false})).unwrap();
         let stored = serde_json::to_value(&app.preferences).unwrap();
         let read = crate::prefs::lenient(&stored);
         assert_eq!((read.joint_rotation_coarse, read.joint_rotation_fine), (12.5, 0.25));
+        assert!(!read.assembly_move_handles);
         let old = crate::prefs::lenient(&json!({}));
         assert_eq!((old.joint_rotation_coarse, old.joint_rotation_fine), (10., 0.1));
+        assert!(old.assembly_move_handles);
         let invalid = crate::prefs::lenient(&json!({"joint_rotation_coarse":0,"joint_rotation_fine":-3}));
         assert_eq!((invalid.joint_rotation_coarse, invalid.joint_rotation_fine), (10., 0.1));
     }
