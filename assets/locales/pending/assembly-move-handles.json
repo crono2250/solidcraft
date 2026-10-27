@@ -84,6 +84,23 @@
     "joint_move.step": "刻み",
     "joint_move.use_handles": "アセンブリの移動にジョイントの操作ハンドルを使う"
   },
+  "tr": {
+    "joint_move.blocked_hint": "Eklem türünü (ör. Sabit), parçanın sabitlenme durumunu, eklem sınırlarını ve parametreyle belirlenen değerleri kontrol edin.",
+    "joint_move.blocked_title": "Bu parça taşınamıyor",
+    "joint_move.coarse": "Eksene yakın dönüş adımı (°)",
+    "joint_move.distance": "Başlangıçtan itibaren mesafe",
+    "joint_move.done": "Tamam",
+    "joint_move.fine": "Eksenden uzak dönüş adımı (°)",
+    "joint_move.fixed": "Bu parçanın hareket ettirilebilir bir eklem ekseni yok.",
+    "joint_move.help": "Taşı — oku veya yayı sürükleyin. Esc geçerli sürüklemeyi iptal eder.",
+    "joint_move.legacy_hint": "Önceki Taşı panelini kullanmak için kapatın.",
+    "joint_move.precision": "Dönüşü hassas ayarlamak için kesikli kılavuzun dışına sürükleyin.",
+    "joint_move.rotation": "Başlangıçtan itibaren dönüş",
+    "joint_move.select": "Bir yüz veya montajdaki bir parçayı seçin, ardından Taşı'yı seçin.",
+    "joint_move.settings": "Montajda Taşıma",
+    "joint_move.step": "Adım",
+    "joint_move.use_handles": "Montajda Taşıma için eklem hareket tutamaçlarını kullan"
+  },
   "vi": {
     "joint_move.blocked_hint": "Kiểm tra loại khớp nối (chẳng hạn khớp nối cố định), trạng thái cố định của chi tiết, giới hạn khớp nối và các giá trị do tham số điều khiển.",
     "joint_move.blocked_title": "Không thể di chuyển chi tiết này",
