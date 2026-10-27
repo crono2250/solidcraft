@@ -24,6 +24,14 @@ without changing sketch geometry, dimensions, or undo history.
 On short windows or enlarged displays, the Sketch Palette's options scroll while its
 constraint status and **Finish Sketch** button remain visible.
 
+Hover over a circle or arc centre, or the midpoint of a straight sketch edge, then move
+horizontally or vertically to see a dotted alignment guide. The guide connects that reference
+to the cursor's projection on the sketch axis, within the viewport; it disappears when you
+move away from the axis. This works while editing and before a drawing tool's first click.
+It adds no geometry or constraints. Esc, leaving the viewport, or ending the sketch clears
+the reference. Preferences › Sketch › **Center and midpoint alignment guides** turns it off;
+the configured snap-suppression modifier also hides it.
+
 ## Geometry
 
 **Point** is available directly on the default Sketch **CREATE** toolbar. Click it, then

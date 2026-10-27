@@ -1,0 +1,26 @@
+{
+  "en": {
+    "prefs.sketch_tracking_guides": "Center and midpoint alignment guides",
+    "prefs.sketch_tracking_guides_note": "Hover over a circle center or straight-edge midpoint, then move horizontally or vertically to show a temporary dotted guide."
+  },
+  "ja": {
+    "prefs.sketch_tracking_guides": "中心・中点の整列ガイド",
+    "prefs.sketch_tracking_guides_note": "円の中心や直線辺の中点にカーソルを合わせ、水平・垂直に移動すると一時的な点線ガイドを表示します。"
+  },
+  "zh": {
+    "prefs.sketch_tracking_guides": "圆心和中点对齐辅助线",
+    "prefs.sketch_tracking_guides_note": "将光标悬停在圆心或直线边的中点，然后水平或垂直移动以显示临时虚线辅助线。"
+  },
+  "de": {
+    "prefs.sketch_tracking_guides": "Ausrichtungshilfen für Mittelpunkte",
+    "prefs.sketch_tracking_guides_note": "Den Mauszeiger über einen Kreismittelpunkt oder eine Kantenmitte bewegen und dann waagerecht oder senkrecht bewegen, um eine temporäre gepunktete Hilfslinie anzuzeigen."
+  },
+  "ko": {
+    "prefs.sketch_tracking_guides": "중심 및 중점 정렬 안내선",
+    "prefs.sketch_tracking_guides_note": "원 중심이나 직선 모서리의 중점에 마우스를 올린 다음 수평 또는 수직으로 이동하면 임시 점선 안내선이 표시됩니다."
+  },
+  "en-GB": {
+    "prefs.sketch_tracking_guides": "Centre and midpoint alignment guides",
+    "prefs.sketch_tracking_guides_note": "Hover over a circle centre or straight-edge midpoint, then move horizontally or vertically to show a temporary dotted guide."
+  }
+}
