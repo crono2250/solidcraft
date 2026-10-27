@@ -154,6 +154,8 @@ pub struct ViewportState {
     /// (sketch, point id): it is drawn, and it takes the pointer from further away
     /// ([`WOKEN_CENTRE_PX`]), until another curve or point is hovered.
     pub woken_centre: Option<(u64, String)>,
+    /// The centre or midpoint most recently hovered for visual H/V tracking.
+    pub(crate) tracking: crate::inference::Tracking,
     pub mouse: Option<Pos2>,
     /// Box selection being dragged.
     pub boxsel: Option<BoxSel>,
@@ -4473,6 +4475,8 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
     crate::dim_view::show(app, ui, &painter, &proj);
     crate::sketch_text_handles::show(app, ui, &painter, &proj, hover);
     crate::sketch3d::show(app, &painter, &proj);
+    let tracking_cursor = hover.filter(|_| inside && !navigating && !app.esc_handled && !ui.input(|i| i.key_pressed(egui::Key::Escape)));
+    crate::inference::track_and_show(app, &painter, &proj, tracking_cursor);
     crate::inference::show(app, &painter, &proj);
     crate::drag_snap::show(app, &painter, &proj);
     crate::insert_handles::show(app, ui, &proj);

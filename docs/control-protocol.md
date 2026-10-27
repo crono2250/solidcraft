@@ -319,6 +319,14 @@ labels; `prefs:measure_axis_distances` identifies the checkbox.
 Entering Render requires finishing the current modelling operation; returning restores
 the Design camera. See [the integrated Render workspace](render-workspace.md).
 
+### Sketch alignment guides
+
+`ui.prefs {sketch_tracking_guides: true}` enables temporary horizontal and vertical dotted
+alignment guides from hovered circle/arc centres and straight-edge midpoints (default true).
+The guide spans the reference and cursor projection, including positions inside a circle.
+It is visual only: coordinates, snapping and constraints are unchanged. Set the preference
+to `false` to hide the guides.
+
 ### Continuous camera motion
 
 Continuous camera motion is also available through `engine.execute` with command
