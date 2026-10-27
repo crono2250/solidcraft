@@ -1167,7 +1167,7 @@ mod tests {
             // representation, rather than mistaking its fixture file calls for product code.
             let text = std::fs::read_to_string(root.join(file)).unwrap().replace("\r\n", "\n");
             // The code before its test module.
-            text.split("\n#[cfg(test)]\n#[allow(clippy::unwrap_used").next().unwrap_or("").to_string()
+            text.replace("\r\n", "\n").split("\n#[cfg(test)]\n#[allow(clippy::unwrap_used").next().unwrap_or("").to_string()
         };
         for file in ["src/cmd/component_link.rs", "src/cmd/component_extract.rs"] {
             let text = code(file);
