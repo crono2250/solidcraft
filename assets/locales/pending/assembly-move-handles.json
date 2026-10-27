@@ -33,6 +33,23 @@
     "joint_move.step": "الخطوة",
     "joint_move.use_handles": "استخدام مقابض حركة المفاصل لتحريك التجميع"
   },
+  "fr": {
+    "joint_move.blocked_hint": "Vérifiez le type de liaison (par exemple rigide), la fixation de la pièce, les limites de la liaison et les valeurs pilotées par des paramètres.",
+    "joint_move.blocked_title": "Impossible de déplacer cette pièce",
+    "joint_move.coarse": "Pas de rotation près de l’axe (°)",
+    "joint_move.distance": "Distance depuis le départ",
+    "joint_move.done": "Terminé",
+    "joint_move.fine": "Pas de rotation loin de l’axe (°)",
+    "joint_move.fixed": "Cette pièce n’a aucun axe de liaison mobile.",
+    "joint_move.help": "Déplacer — faites glisser une flèche ou un arc. Esc annule le glissement en cours.",
+    "joint_move.legacy_hint": "Désactivez cette option pour utiliser l’ancien panneau Déplacer.",
+    "joint_move.precision": "Tirez au-delà du repère en pointillés pour ajuster finement la rotation.",
+    "joint_move.rotation": "Rotation depuis le départ",
+    "joint_move.select": "Sélectionnez une face ou une pièce de l’assemblage, puis choisissez Déplacer.",
+    "joint_move.settings": "Déplacement dans l’assemblage",
+    "joint_move.step": "Pas",
+    "joint_move.use_handles": "Utiliser les poignées de mouvement des liaisons pour déplacer dans l’assemblage"
+  },
   "he": {
     "joint_move.blocked_hint": "בדקו את סוג המפרק (למשל מפרק קשיח), את קיבוע החלק, את מגבלות המפרק ואת הערכים הנשלטים על ידי פרמטרים.",
     "joint_move.blocked_title": "אי אפשר להזיז את החלק הזה",
