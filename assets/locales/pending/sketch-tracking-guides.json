@@ -22,5 +22,17 @@
   "en-GB": {
     "prefs.sketch_tracking_guides": "Centre and midpoint alignment guides",
     "prefs.sketch_tracking_guides_note": "Hover over a circle centre or straight-edge midpoint, then move horizontally or vertically to show a temporary dotted guide."
+  },
+  "ar": {
+    "prefs.sketch_tracking_guides": "أدلة محاذاة المراكز ونقاط المنتصف",
+    "prefs.sketch_tracking_guides_note": "مرّر المؤشر فوق مركز دائرة أو نقطة منتصف حافة مستقيمة، ثم حرّكه أفقيًا أو عموديًا لإظهار دليل منقّط مؤقت."
+  },
+  "he": {
+    "prefs.sketch_tracking_guides": "קווי עזר ליישור מרכזים ונקודות אמצע",
+    "prefs.sketch_tracking_guides_note": "יש לרחף עם הסמן מעל מרכז מעגל או נקודת אמצע של צלע ישרה, ואז להזיז אותו אופקית או אנכית כדי להציג קו עזר מקווקו זמני."
+  },
+  "vi": {
+    "prefs.sketch_tracking_guides": "Đường căn chỉnh tâm và trung điểm",
+    "prefs.sketch_tracking_guides_note": "Di con trỏ lên tâm đường tròn hoặc trung điểm của cạnh thẳng, rồi di chuyển theo phương ngang hoặc dọc để hiển thị đường căn chỉnh nét đứt tạm thời."
   }
 }
