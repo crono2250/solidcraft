@@ -1,5 +1,6 @@
 {
   "en": {
+    "help.occurrence.move": "Moves an assembly part only along freedoms allowed by its joints. Select a part face, then drag an available arrow or arc.",
     "joint_move.blocked_hint": "Check the joint type (such as Rigid), grounding, joint limits, and parameter-driven values.",
     "joint_move.blocked_title": "Cannot move this part",
     "joint_move.coarse": "Near-axis rotation step (°)",
@@ -17,6 +18,7 @@
     "joint_move.use_handles": "Use joint motion handles for assembly Move"
   },
   "ar": {
+    "help.occurrence.move": "يحرّك جزءًا في التجميع فقط ضمن درجات الحرية التي تسمح بها مفاصله. حدد وجهًا للجزء، ثم اسحب سهمًا أو قوسًا متاحًا.",
     "joint_move.blocked_hint": "تحقق من نوع المفصل (مثل المفصل الثابت)، وتثبيت الجزء، وحدود المفصل، والقيم التي تتحكم بها المعلمات.",
     "joint_move.blocked_title": "لا يمكن تحريك هذا الجزء",
     "joint_move.coarse": "خطوة الدوران قرب المحور (°)",
@@ -34,6 +36,7 @@
     "joint_move.use_handles": "استخدام مقابض حركة المفاصل لتحريك التجميع"
   },
   "fr": {
+    "help.occurrence.move": "Déplace une pièce d’assemblage selon les seules libertés permises par ses liaisons. Sélectionnez une face de la pièce, puis faites glisser une flèche ou un arc disponible.",
     "joint_move.blocked_hint": "Vérifiez le type de liaison (par exemple rigide), la fixation de la pièce, les limites de la liaison et les valeurs pilotées par des paramètres.",
     "joint_move.blocked_title": "Impossible de déplacer cette pièce",
     "joint_move.coarse": "Pas de rotation près de l’axe (°)",
@@ -51,6 +54,7 @@
     "joint_move.use_handles": "Utiliser les poignées de mouvement des liaisons pour déplacer dans l’assemblage"
   },
   "he": {
+    "help.occurrence.move": "מזיז חלק בהרכבה רק בכיוונים שהמפרקים שלו מאפשרים. בחרו פאה של החלק, ואז גררו חץ או קשת זמינים.",
     "joint_move.blocked_hint": "בדקו את סוג המפרק (למשל מפרק קשיח), את קיבוע החלק, את מגבלות המפרק ואת הערכים הנשלטים על ידי פרמטרים.",
     "joint_move.blocked_title": "אי אפשר להזיז את החלק הזה",
     "joint_move.coarse": "צעד סיבוב קרוב לציר (°)",
@@ -68,6 +72,7 @@
     "joint_move.use_handles": "שימוש בידיות תנועת מפרקים להזזה בהרכבה"
   },
   "ja": {
+    "help.occurrence.move": "アセンブリ部品をジョイントが許す自由度だけで動かします。部品の面を選択してから、操作可能な矢印または円弧をドラッグしてください。",
     "joint_move.blocked_hint": "Rigid合致、部品の固定状態、ジョイントの制限値、パラメーターでの拘束を確認してください。",
     "joint_move.blocked_title": "この部品は移動できません",
     "joint_move.coarse": "軸に近い位置の回転刻み（°）",
@@ -85,6 +90,7 @@
     "joint_move.use_handles": "アセンブリの移動にジョイントの操作ハンドルを使う"
   },
   "tr": {
+    "help.occurrence.move": "Montaj parçasını yalnızca eklemlerinin izin verdiği serbestliklerde taşır. Bir parça yüzü seçtikten sonra kullanılabilir oku veya yayı sürükleyin.",
     "joint_move.blocked_hint": "Eklem türünü (ör. Sabit), parçanın sabitlenme durumunu, eklem sınırlarını ve parametreyle belirlenen değerleri kontrol edin.",
     "joint_move.blocked_title": "Bu parça taşınamıyor",
     "joint_move.coarse": "Eksene yakın dönüş adımı (°)",
@@ -102,6 +108,7 @@
     "joint_move.use_handles": "Montajda Taşıma için eklem hareket tutamaçlarını kullan"
   },
   "vi": {
+    "help.occurrence.move": "Chỉ di chuyển chi tiết lắp ráp theo các bậc tự do mà khớp nối cho phép. Chọn một mặt của chi tiết, rồi kéo mũi tên hoặc cung tròn có thể sử dụng.",
     "joint_move.blocked_hint": "Kiểm tra loại khớp nối (chẳng hạn khớp nối cố định), trạng thái cố định của chi tiết, giới hạn khớp nối và các giá trị do tham số điều khiển.",
     "joint_move.blocked_title": "Không thể di chuyển chi tiết này",
     "joint_move.coarse": "Bước xoay khi ở gần trục (°)",
@@ -119,6 +126,7 @@
     "joint_move.use_handles": "Dùng tay nắm chuyển động khớp nối khi di chuyển trong cụm lắp ráp"
   },
   "zh": {
+    "help.occurrence.move": "仅沿关节允许的自由度移动装配零部件。选中零部件的面后，拖动可用的箭头或圆弧。",
     "joint_move.blocked_hint": "请检查关节类型（例如 Rigid）、固定状态、关节限位和参数驱动值。",
     "joint_move.blocked_title": "无法移动此零部件",
     "joint_move.coarse": "靠近轴线时的旋转步长（°）",
