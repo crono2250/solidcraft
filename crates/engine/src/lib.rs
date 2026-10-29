@@ -22,6 +22,7 @@ pub mod fuzz;
 pub mod licences;
 pub mod occurrences;
 pub mod params;
+pub mod plugin;
 pub mod product_scene;
 pub mod recovery;
 pub mod render_jobs;
@@ -440,6 +441,8 @@ pub struct Session {
     pub(crate) followed: Option<cmd::inspect::Followed>,
     /// Project a face's edges into a sketch created on it (the default; `sketch.auto_project`).
     pub auto_project: bool,
+    /// Host preferences; never saved in a design.
+    pub disabled_plugins: std::collections::BTreeSet<String>,
     /// How calls that break a command's parameter contract are treated (off by default). It
     /// belongs to the session, not the design, so it survives opening and starting designs.
     pub param_check: schema::ParamCheck,
@@ -655,6 +658,7 @@ impl Session {
             document_id: cmd::inspect::new_document_id(),
             followed: None,
             auto_project: true,
+            disabled_plugins: Default::default(),
             param_check: schema::ParamCheck::Off,
             easyprint_upload: None,
             live_links: None,
@@ -707,6 +711,7 @@ impl Session {
     pub fn replace_design(&mut self, fresh: Session) {
         let auto_project = self.auto_project;
         let single_surface_analysis = self.single_surface_analysis;
+        let disabled_plugins = self.disabled_plugins.clone();
         let param_check = self.param_check;
         let easyprint_upload = self.easyprint_upload.take();
         let render_viewport = self.render_viewport.clone();
@@ -721,6 +726,7 @@ impl Session {
         self.crash_journal = crash_journal;
         self.auto_project = auto_project;
         self.set_single_surface_analysis(single_surface_analysis);
+        self.disabled_plugins = disabled_plugins;
         self.param_check = param_check;
         self.easyprint_upload = easyprint_upload;
         self.render_viewport = render_viewport;
@@ -1517,6 +1523,7 @@ impl Session {
             document_id: self.document_id.clone(),
             followed: None,
             auto_project: self.auto_project,
+            disabled_plugins: self.disabled_plugins.clone(),
             param_check: self.param_check,
             easyprint_upload: self.easyprint_upload.clone(),
             live_links: None,

@@ -2,8 +2,8 @@
 //!
 //! A plugin is a directory of `{data}/plugins/<id>/plugin.json`. The page searches that list.
 //! It reads `plugin.json` and records which ids are turned off. It does not load or run anything
-//! from the folder. Running a plugin (the wasm host in docs/plugins.md) is a later step; it will
-//! honour `disabled_plugins`.
+//! from the folder. Explicit `plugin.run` calls use the native component host and honour
+//! `disabled_plugins`; listing or enabling a package never executes its code.
 
 use std::path::{Path, PathBuf};
 
@@ -92,8 +92,8 @@ fn read_plugin(dir: &Path, folder: &str) -> Result<Plugin, String> {
         return Err("plugin.json is missing or larger than 16 KiB".into());
     }
     let text = std::fs::read_to_string(&path).map_err(|e| format!("plugin.json could not be read ({e})"))?;
-    let manifest: Manifest = serde_json::from_str(&text).map_err(|e| format!("plugin.json is not a plugin manifest ({e})"))?;
-    check(manifest, folder)
+    let parsed = solidcraft_engine::plugin::parse_manifest(text.as_bytes(), folder).map_err(|e| e.to_string())?;
+    check(Manifest { id: parsed.id, name: parsed.name, version: parsed.version, description: parsed.description }, folder)
 }
 
 /// The plugins in `dir`, and the folders that were not. A missing directory is an empty list.

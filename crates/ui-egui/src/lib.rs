@@ -1094,6 +1094,11 @@ impl SolveApp {
 
     /// Run a command programmatically (JSON parameters, no dialogs).
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        self.session.disabled_plugins.clone_from(&self.preferences.disabled_plugins);
+        if id == "plugin.run" {
+            let key = if cfg!(target_arch = "wasm32") { "ui.plugins_desktop" } else { "ui.plugin_standalone" };
+            return Err(self.tr(key).into());
+        }
         if self.file_load.busy() || self.file_picker.is_some() || self.saving.is_some() {
             return Err("a file operation is in progress".into());
         }
