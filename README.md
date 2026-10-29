@@ -204,7 +204,8 @@ to refuse subsequent desktop calls. Disabling it during a pending call prevents 
 processes have their own session policy and do not read the desktop app's preferences.
 
 See the [runtime and author guide](docs/plugin-runtime.md) for the complete manifest, supported
-command boundary, limits, build options, tests and current restrictions. The existing
+command boundary, limits, build options, tests and current restrictions.
+For step-by-step package checks and expected results, see the [English test guide](docs/plugin-test-guide.md). The existing
 [parametric plugin design](docs/plugins.md) remains a separate future phase.
 
 ## Contributing
