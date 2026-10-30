@@ -110,8 +110,8 @@ Preferences > Plugins lists inert package metadata. Listing or enabling a packag
 never executes it. The CLI/MCP and standalone desktop command are the execution
 entry points; this version has no dedicated plugin action panel or installer.
 Desktop plugin calls compute on a worker. Stop, a changed design/selection/context,
-or changed disabled-plugin preferences prevent the pending result from being adopted.
-The CLI is a separate process and does not inherit the GUI's disabled-plugin list.
+or changed disabled-plugin preferences or resource ceilings prevent the pending result from
+being adopted. The CLI is a separate process and does not inherit the GUI's plugin settings.
 
 Guest code receives no WASI filesystem, network or process imports. Its exact
 manifest grants are intersected with host policy. Commands run on a scratch design
@@ -130,6 +130,57 @@ CAD work are outside the guest execution budget. Browser execution, automatic
 updates, custom panels, persistent guest storage and plugin-defined parametric
 feature types are not implemented. See [the runtime reference](plugin-runtime.md)
 for exact limits and supported commands.
+
+## Explicitly allow a larger plugin budget
+
+The box sample uses the unchanged invocation defaults; it needs no settings changes. Use the
+following steps only for a separate package whose reviewed manifest requests a larger budget.
+The original host ceilings are 100,000,000,000 fuel and 128 MiB. Raising either ceiling does
+not change the sample's request or run any plugin.
+
+For the desktop:
+
+1. Inspect the package with `plugin.inspect` and read `manifest.runtime.limits`, `host_limits`,
+   `within_host_limits` and any `limits_error`. This step does not execute code.
+2. Open **Preferences > Plugins**. Enter a positive integer in **Max plugin fuel** and in
+   **Max plugin memory (MiB)**, large enough for the specific request you reviewed. For
+   example, a request of 200,000,000,000 fuel and 256 MiB fits ceilings of 200000000000 and 512.
+3. Choose **Apply** to accept both fields and keep the dialog open, or **OK** to accept and
+   close it. Enter also accepts both fields. Invalid or incomplete values keep the dialog open.
+   **Cancel** restores changes since the last Apply; **Restore defaults** resets this page.
+4. Inspect the package again to check `within_host_limits: true`. Review its exact manifest,
+   code and grants, then invoke `plugin.run` with that inspection's `approval`. A host ceiling
+   is not a substitute for approval of external code. The package still uses only its declared
+   budget. If the manifest changes, inspect and approve the new content again.
+
+For a standalone CLI:
+
+1. Open Notepad, paste the JSON below, and save it as `plugin-limits.json` in your extracted
+   test package folder. In the Save dialog choose **All files**, so the name does not gain
+   `.txt`; select **UTF-8** encoding.
+
+   ```json
+   {"max_fuel": 200000000000, "max_memory_mib": 512}
+   ```
+
+2. Open a terminal in that folder and include `--plugin-limits plugin-limits.json` in each
+   command that should use these ceilings, for example:
+
+   ```text
+   bin\solidcraft-cli.exe --plugin-limits plugin-limits.json run inspect-plugin.json --results
+   ```
+
+   Here `inspect-plugin.json` is the inspection script for the package you are reviewing,
+   following **Inspect and run another package** above. Keep its package path and reviewed
+   approval hash in the run script; use the same startup flag for that run command. Missing
+   settings keys use the original ceilings; omitting the flag uses both original ceilings.
+3. Headless MCP uses the same flag with `mcp --headless`. For a connected desktop, change the
+   desktop preferences instead; the CLI refuses to override a connected application's policy.
+
+Fuel accepts positive integers through 18446744073709551615. Memory accepts 1..4096 MiB because
+this runtime uses Wasm32. These are guest limits; component compilation, native CAD work and
+other SolidCraft memory are separate. Choose values suitable for available machine resources.
+The execution deadline remains independently capped at 30 seconds.
 
 ## Build from source
 

@@ -179,6 +179,44 @@ author's reputation. Agent chat asks before executing external plugin code. MCP 
 channel keep their existing file scopes: allow the package folder explicitly where needed. Naming
 a package never grants access to another folder.
 
+### User resource ceilings
+
+The invocation defaults remain **10,000,000 fuel, 64 MiB of guest memory and 5000 ms**.
+The default host ceilings remain **100,000,000,000 fuel and 128 MiB**. A package can declare
+larger fuel or memory budgets, but execution is refused until you explicitly raise the host
+ceilings and approve that exact package content. `plugin.inspect` is inert and reports the
+requested limits, current `host_limits`, `within_host_limits` and any `limits_error` even when
+a request is too large.
+
+In the native GUI, open **Preferences > Plugins**, enter **Max plugin fuel** and
+**Max plugin memory (MiB)**, then choose **Apply** or **OK**. Enter also accepts both values;
+**Cancel** reverts changes since the last Apply and **Restore defaults** resets this page.
+The settings persist in your user preferences and do not travel with saved designs.
+
+For standalone CLI or headless MCP sessions, create a UTF-8 JSON file, for example
+`plugin-limits.json` containing:
+
+```json
+{"max_fuel": 200000000000, "max_memory_mib": 512}
+```
+
+Pass it explicitly when starting the process:
+
+```text
+solidcraft-cli --plugin-limits plugin-limits.json run inspect-plugin.json --results
+solidcraft-cli --plugin-limits plugin-limits.json mcp --headless --allow-path /path/to/plugins
+```
+
+Missing fields use the original host ceilings. Connected desktop sessions use the GUI's
+preferences; CLI settings cannot override them. Positive integer fuel values up to `u64::MAX`
+are accepted without rounding. Guest memory is limited to 4096 MiB by the current Wasm32 ABI;
+that technical boundary requires a different runtime ABI to change. Neither setting changes
+a package's declared budget, executes it, adds permissions, or retries a failed invocation.
+Review its manifest and component, obtain the content approval hash, and explicitly invoke it.
+A changed manifest budget requires a fresh approval hash. Keep the selected ceilings within your
+machine's available resources; they are limits on guest execution, not total SolidCraft memory
+or native CAD work. The independent maximum execution deadline stays 30 seconds.
+
 ### Permissions, results and saved designs
 
 A plugin can call only exact built-in command ids listed in its manifest **and** admitted by the
@@ -200,7 +238,8 @@ The result is ordinary native features: they save, undo, redo and rebuild withou
 Removing the package disables future invocations; it does not remove the features already created.
 Changing the plugin's own parameters means another invocation in this first version; there is no
 plugin-owned timeline evaluation hook yet. Turn an installed plugin off in Preferences > Plugins
-to refuse subsequent desktop calls. Disabling it during a pending call prevents adoption. CLI
+to refuse subsequent desktop calls. Disabling it or changing resource ceilings during a pending
+call prevents adoption. CLI
 processes have their own session policy and do not read the desktop app's preferences.
 
 See the [runtime and author guide](docs/plugin-runtime.md) for the complete manifest, supported

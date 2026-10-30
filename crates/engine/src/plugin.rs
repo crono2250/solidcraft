@@ -16,6 +16,49 @@ pub const MAX_MANIFEST_BYTES: usize = 16 * 1024;
 pub const MAX_COMPONENT_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_JSON_BYTES: usize = 1024 * 1024;
 pub const API: &str = "solidcraft:plugin@0.1.0";
+/// Memory32 can address at most 65536 pages of 64 KiB; the runtime allows one memory.
+pub const MAX_MEMORY_MIB: usize = 4096;
+
+/// User-owned ceilings, separate from a package's exact, content-approved request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct HostLimits {
+    pub max_fuel: u64,
+    pub max_memory_mib: usize,
+}
+impl Default for HostLimits {
+    fn default() -> Self {
+        Self { max_fuel: 100_000_000_000, max_memory_mib: 128 }
+    }
+}
+impl HostLimits {
+    pub fn validate(&self) -> Result<()> {
+        if self.max_fuel == 0 || !(1..=MAX_MEMORY_MIB).contains(&self.max_memory_mib) {
+            return Err(error("host limits require positive integer max_fuel and max_memory_mib 1..4096 (Wasm32)"));
+        }
+        Ok(())
+    }
+    pub fn check(&self, requested: &Limits) -> Result<()> {
+        self.validate()?;
+        requested.validate()?;
+        if requested.fuel > self.max_fuel || requested.memory_mib > self.max_memory_mib {
+            return Err(error(format!(
+                "requested fuel {} / memory {} MiB exceeds user host limits {} / {} MiB; explicitly change the host settings and review the package before running",
+                requested.fuel, requested.memory_mib, self.max_fuel, self.max_memory_mib
+            )));
+        }
+        Ok(())
+    }
+}
+static PROCESS_HOST_LIMITS: std::sync::OnceLock<HostLimits> = std::sync::OnceLock::new();
+/// Configure trusted host startup once, before creating CLI/headless sessions. Not a guest command.
+pub fn configure_process_host_limits(limits: HostLimits) -> Result<()> {
+    limits.validate()?;
+    PROCESS_HOST_LIMITS.set(limits).map_err(|_| error("process plugin host limits are already configured"))
+}
+pub(crate) fn default_host_limits() -> HostLimits {
+    PROCESS_HOST_LIMITS.get().copied().unwrap_or_default()
+}
 
 /// Metadata is inert. A runtime declaration still needs explicit approval to execute.
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -54,6 +97,14 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self { fuel: 10_000_000, memory_mib: 64, deadline_ms: 5000 }
+    }
+}
+impl Limits {
+    fn validate(&self) -> Result<()> {
+        if self.fuel == 0 || !(1..=MAX_MEMORY_MIB).contains(&self.memory_mib) || !(1..=30_000).contains(&self.deadline_ms) {
+            return Err(error("limits require positive fuel, memory 1..4096 MiB (Wasm32) and deadline 1..30000 ms"));
+        }
+        Ok(())
     }
 }
 
@@ -108,10 +159,7 @@ pub fn parse_manifest(text: &[u8], folder: &str) -> Result<Manifest> {
         if runtime.commands.len() > 128 || runtime.commands.iter().any(|id| !allowed_command(id)) {
             return Err(error("commands include an unavailable or forbidden built-in command"));
         }
-        let l = &runtime.limits;
-        if !(1..=100_000_000_000).contains(&l.fuel) || !(1..=128).contains(&l.memory_mib) || !(1..=30_000).contains(&l.deadline_ms) {
-            return Err(error("limits exceed fuel 100000000000, memory 128 MiB or deadline 30000 ms"));
-        }
+        runtime.limits.validate()?;
     }
     Ok(m)
 }
@@ -166,6 +214,7 @@ pub fn run(session: &mut Session, package: Package, entry: &str, params: &serde_
         return Err(error("plugin is disabled"));
     }
     let rt = package.manifest.runtime.as_ref().ok_or_else(|| error("no executable runtime"))?;
+    session.plugin_limits.check(&rt.limits)?;
     if !rt.entries.iter().any(|e| e == entry) {
         return Err(error("unknown entry"));
     }

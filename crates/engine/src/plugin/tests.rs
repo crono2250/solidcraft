@@ -21,8 +21,8 @@ fn manifest_is_inert_bounded_and_refuses_unknown_capabilities() {
         |m: &mut Value| m["runtime"]["commands"] = json!(["file.export"]),
         |m: &mut Value| m["runtime"]["commands"] = json!(["plugin.run"]),
         |m: &mut Value| m["runtime"]["entries"] = json!(["make", "make"]),
-        |m: &mut Value| m["runtime"]["limits"]["memory_mib"] = json!(129),
-        |m: &mut Value| m["runtime"]["limits"]["fuel"] = json!(100_000_000_001_u64),
+        |m: &mut Value| m["runtime"]["limits"]["memory_mib"] = json!(4097),
+        |m: &mut Value| m["runtime"]["limits"]["fuel"] = json!(0),
         |m: &mut Value| m["runtime"]["limits"]["deadline_ms"] = json!(30_001),
         |m: &mut Value| m["runtime"]["api"] = json!("solidcraft:plugin@99.0.0"),
         |m: &mut Value| m["network"] = json!(true),
@@ -79,6 +79,60 @@ mod native {
         let original = "      call $box\n      call $box\n";
         assert!(template.contains(original));
         wat::parse_str(template.replacen(original, &format!("      {code}\n"), 1)).unwrap()
+    }
+    #[test]
+    fn larger_declared_budgets_need_user_ceilings_and_exact_content_approval() {
+        let f = Fixture::new("call $box i32.const 2048 memory.grow i32.const -1 i32.eq if unreachable end");
+        let path = f.0.join("sample/plugin.json");
+        let mut m = manifest();
+        m["runtime"]["limits"] = json!({"fuel":200_000_000_000_u64,"memory_mib":256,"deadline_ms":5000});
+        std::fs::write(&path, m.to_string()).unwrap();
+        let mut s = Session::default();
+        let inspection = s.execute("plugin.inspect", &json!({"path":f.path()})).unwrap();
+        assert_eq!(inspection["within_host_limits"], false);
+        assert_eq!(inspection["host_limits"]["max_memory_mib"], 128);
+        assert!(inspection["limits_error"].as_str().unwrap().contains("user host limits"));
+        let before = s.doc.to_json();
+        assert!(f.run(&mut s).unwrap_err().to_string().contains("user host limits"));
+        assert_eq!(s.doc.to_json(), before);
+        assert!(s.undo.is_empty());
+        s.plugin_limits = HostLimits { max_fuel: 200_000_000_000, max_memory_mib: 256 };
+        let approved = s.execute("plugin.inspect", &json!({"path":f.path()})).unwrap();
+        assert_eq!(approved["within_host_limits"], true);
+        assert_eq!(approved["approval"], inspection["approval"], "approval pins the exact request; a ceiling change never changes its budget");
+        f.run(&mut s).unwrap();
+        assert_eq!(s.execute("inspect.measure", &json!({})).unwrap()["total"]["volume_mm3"], 24.);
+        assert_eq!(s.undo.len(), 1);
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert_eq!(s.doc.to_json(), before);
+        // Even the largest u64 budget reaches Wasmtime exactly; a new request needs new approval.
+        m["runtime"]["limits"]["fuel"] = json!(u64::MAX);
+        std::fs::write(&path, m.to_string()).unwrap();
+        s.plugin_limits.max_fuel = u64::MAX;
+        assert!(s.execute("plugin.run", &json!({"path":f.path(),"approval":approved["approval"],"entry":"make"})).is_err());
+        assert_eq!(s.doc.to_json(), before);
+        f.run(&mut s).unwrap();
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert_eq!(s.doc.to_json(), before);
+        // Reducing the host policy blocks a previously reviewed package.
+        s.plugin_limits = HostLimits::default();
+        assert!(f.run(&mut s).is_err());
+        assert_eq!(s.doc.to_json(), before);
+    }
+    #[test]
+    fn a_plugin_prepared_under_an_old_host_policy_is_not_adopted() {
+        let f = Fixture::new("call $box");
+        let mut s = Session::default();
+        let i = s.execute("plugin.inspect", &json!({"path":f.path()})).unwrap();
+        let params = json!({"path":f.path(),"approval":i["approval"],"entry":"make"});
+        let prepared = s.scratch().compute_commands(&[("plugin.run".into(), params)], None).unwrap();
+        assert!(prepared.is_current(&s));
+        s.plugin_limits.max_memory_mib = 512;
+        assert!(!prepared.is_current(&s));
+        let before = s.doc.to_json();
+        assert!(s.accept_commands(prepared).is_err());
+        assert_eq!(s.doc.to_json(), before);
+        assert!(s.undo.is_empty());
     }
     #[test]
     fn component_edits_are_one_undo_step_and_reopen_without_the_plugin() {
@@ -251,4 +305,29 @@ fn evaluated_mesh_transfer_refuses_an_oversized_input_without_truncation() {
     let before = s.doc.to_json();
     assert!(s.execute("model.mesh", &json!({"body":"Many"})).unwrap_err().to_string().contains("transfer budget"));
     assert_eq!(s.doc.to_json(), before);
+}
+
+#[test]
+fn host_resource_policy_is_exact_user_state_and_never_design_data() {
+    let defaults = HostLimits::default();
+    assert_eq!((defaults.max_fuel, defaults.max_memory_mib), (100_000_000_000, 128));
+    let request = Limits::default();
+    assert_eq!((request.fuel, request.memory_mib, request.deadline_ms), (10_000_000, 64, 5000));
+    assert!(defaults.check(&request).is_ok());
+    for limits in
+        [HostLimits { max_fuel: 0, ..defaults }, HostLimits { max_memory_mib: 0, ..defaults }, HostLimits { max_memory_mib: 4097, ..defaults }]
+    {
+        assert!(limits.validate().is_err());
+    }
+    let mut m = manifest();
+    m["runtime"]["limits"] = json!({"fuel":u64::MAX,"memory_mib":4096,"deadline_ms":30000});
+    assert!(parse_manifest(&serde_json::to_vec(&m).unwrap(), "sample").is_ok());
+    let policy = HostLimits { max_fuel: u64::MAX, max_memory_mib: 4096 };
+    assert_eq!(serde_json::from_str::<HostLimits>(&serde_json::to_string(&policy).unwrap()).unwrap(), policy);
+    let mut s = Session { plugin_limits: policy, ..Default::default() };
+    assert_eq!(s.scratch().plugin_limits, policy);
+    s.execute("file.new", &json!({})).unwrap();
+    assert_eq!(s.plugin_limits, policy);
+    assert!(!s.doc.to_json().contains("max_fuel"));
+    assert!(!allowed_command("plugin.configure"));
 }

@@ -14,6 +14,11 @@ pub struct InspectResult {
     pub manifest: crate::plugin::Manifest,
     /// SHA-256 of the exact manifest bytes and component. Review the manifest before using it.
     pub approval: String,
+    pub host_limits: crate::plugin::HostLimits,
+    /// Whether the requested resources fit the current user ceilings; not an execution grant.
+    pub within_host_limits: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits_error: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub param_warnings: Vec<String>,
 }

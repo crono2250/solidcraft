@@ -1000,7 +1000,7 @@ fn plugin_execution_is_off_thread_even_with_agent_off_thread_disabled() {
 #[test]
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn a_plugin_result_is_discarded_after_design_or_selection_changes() {
-    for context in ["document", "selection"] {
+    for context in ["document", "selection", "plugin_limits"] {
         let (mut h, tx) = agent_harness();
         h.app.preferences.language = if context == "selection" { "ja" } else { "en" }.into();
         h.app.run("solid.box", json!({"length":1,"width":1,"height":1,"corner":[200,200,200]})).unwrap();
@@ -1017,6 +1017,8 @@ fn a_plugin_result_is_discarded_after_design_or_selection_changes() {
         assert!(h.app.agent_computing().is_some());
         if context == "document" {
             h.app.run("solid.box", json!({"length":2,"width":2,"height":2,"corner":[100,100,100]})).unwrap();
+        } else if context == "plugin_limits" {
+            crate::prefs::set(&mut h.app, &json!({"plugin_max_memory_mib":512})).unwrap();
         } else {
             let selection = vec![solidcraft_engine::Sel::Feature { id: feature_ids(&h)[0] }];
             if h.app.session.selection == selection {

@@ -134,7 +134,11 @@ enum Work {
     /// Run on a copy; the reply comes from there.
     Answer,
     /// External code executes once on its worker. Stale/cancelled results are discarded.
-    Plugin { prepared: Receiver<Result<solidcraft_engine::ComputedCommands, String>>, disabled: std::collections::BTreeSet<String> },
+    Plugin {
+        prepared: Receiver<Result<solidcraft_engine::ComputedCommands, String>>,
+        disabled: std::collections::BTreeSet<String>,
+        limits: solidcraft_engine::plugin::HostLimits,
+    },
 }
 
 /// A control request computing off the window thread.
@@ -367,7 +371,7 @@ impl SolveApp {
     /// Take a control request off the window thread when it computes long (see the module
     /// notes). Returns it when it should simply run here now.
     pub(crate) fn offload_control(&mut self, ctx: &egui::Context, req: ControlRequest) -> Option<ControlRequest> {
-        self.session.disabled_plugins.clone_from(&self.preferences.disabled_plugins);
+        crate::plugins::sync_policy(self);
         if cfg!(not(target_arch = "wasm32"))
             && matches!(req.method.as_str(), "engine.execute" | "command")
             && let Some(("plugin.run", params)) = executed(&req.params)
@@ -406,7 +410,7 @@ impl SolveApp {
             self.control_job = Some(ControlJob {
                 label: label(self, "plugin.run"),
                 req,
-                work: Work::Plugin { prepared, disabled: self.preferences.disabled_plugins.clone() },
+                work: Work::Plugin { prepared, disabled: self.preferences.disabled_plugins.clone(), limits: self.session.plugin_limits },
                 done,
                 started: crate::now_ms(),
                 steps: None,
@@ -524,8 +528,12 @@ impl SolveApp {
             return;
         }
         let Some(job) = self.control_job.take() else { return };
-        if let Work::Plugin { prepared, disabled } = &job.work {
-            let result = if self.file_load.busy() || self.file_picker.is_some() || disabled != &self.preferences.disabled_plugins {
+        if let Work::Plugin { prepared, disabled, limits } = &job.work {
+            let result = if self.file_load.busy()
+                || self.file_picker.is_some()
+                || disabled != &self.preferences.disabled_plugins
+                || *limits != crate::plugins::host_limits(&self.preferences)
+            {
                 Err(self.tr("ui.plugin_context_changed").to_string())
             } else {
                 prepared

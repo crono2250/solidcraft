@@ -1072,6 +1072,7 @@ impl SolveApp {
         }
         // Before a design given at start opens: its paths follow the network preferences.
         prefs::sync_surface_analysis(self);
+        crate::plugins::sync_policy(self);
         prefs::apply_network(&self.preferences);
         // Before a file given at start opens: the largest file it may be (#4086).
         prefs::apply_file_limits(&self.preferences);
@@ -1094,7 +1095,7 @@ impl SolveApp {
 
     /// Run a command programmatically (JSON parameters, no dialogs).
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
-        self.session.disabled_plugins.clone_from(&self.preferences.disabled_plugins);
+        crate::plugins::sync_policy(self);
         if id == "plugin.run" {
             let key = if cfg!(target_arch = "wasm32") { "ui.plugins_desktop" } else { "ui.plugin_standalone" };
             return Err(self.tr(key).into());

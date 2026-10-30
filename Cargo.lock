@@ -4618,6 +4618,7 @@ dependencies = [
  "solidcraft-engine",
  "solidcraft-gpu",
  "solidcraft-mcp",
+ "wat",
 ]
 
 [[package]]

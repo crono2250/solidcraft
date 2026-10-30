@@ -98,11 +98,11 @@ policy, not the GUI's preferences.
 
 ## Budgets and limits
 
-| Resource | Default / hard maximum |
+| Resource | Default / limit |
 |---|---|
 | Component input | 16 MiB |
-| Guest fuel per invocation | 10,000,000 / 100,000,000,000 |
-| Guest memory | 64 MiB / 128 MiB; one memory total |
+| Guest fuel per invocation | 10,000,000; user host ceiling defaults to 100,000,000,000 |
+| Guest memory | 64 MiB; user host ceiling defaults to 128 MiB; one memory total |
 | Entry deadline | 5 s / 30 s |
 | Core instances / tables | 8 / 2 (guest plus canonical ABI shim) |
 | Table elements / guest stack | 10,000 / 512 KiB |
@@ -110,11 +110,61 @@ policy, not the GUI's preferences.
 | Params, one host result, final result | 1 MiB each, bounded JSON parser depth |
 | Log messages | 1 KiB each, 64 KiB per call; control characters stripped |
 
-The default fuel remains 10 million. Larger budgets require an explicit manifest value and a new
-content approval; the host never raises a budget or retries automatically. Fuel counts metered
-Wasm operations rather than milliseconds. A substantial separately compiled CAD routine can use
-billions of fuel units; the independent 30-second deadline and 128 MiB memory ceiling still apply
-to an explicitly approved larger request.
+Fuel counts metered Wasm operations rather than milliseconds. A substantial separately compiled
+CAD routine can use billions of fuel units. The default invocation budgets and default host
+ceilings above are unchanged. The initial 128 MiB host ceiling is a conservative policy choice,
+not a measured minimum or a guarantee that every plugin fits.
+
+### Change the host ceilings without rebuilding
+
+The native GUI persists `plugin_max_fuel` and `plugin_max_memory_mib` in user preferences.
+**Preferences > Plugins** presents exact decimal text fields (**Max plugin fuel** and
+**Max plugin memory (MiB)**). Enter, Apply or OK validates and accepts both integers together;
+an incomplete or invalid field cannot silently save a numeric prefix. Cancel restores the last
+Apply/open snapshot. Restore defaults resets this page to the original host ceilings. The
+`ui.prefs` control method uses the same strict validation. Agent chat cannot change preferences;
+guests have no preference or host-policy command.
+
+A standalone CLI or `mcp --headless` process can read the same two ceiling concepts from an
+explicit startup file:
+
+```json
+{"max_fuel": 200000000000, "max_memory_mib": 512}
+```
+
+```text
+solidcraft-cli --plugin-limits plugin-limits.json run inspect-plugin.json --results
+solidcraft-cli --plugin-limits plugin-limits.json mcp --headless --allow-path /path/to/plugins
+```
+
+This UTF-8 JSON file is at most 16 KiB; a UTF-8 BOM is accepted for Windows editors. Its keys are
+`max_fuel` and `max_memory_mib`; missing keys use the original host defaults, while unknown keys,
+zero, fractional and out-of-range values are refused. The CLI reads it once before creating
+local sessions. Omit the flag to use the original ceilings. `--connect` and non-headless `mcp`
+refuse this flag because the connected desktop owns its preferences. GUI preferences and CLI
+startup files are separate user settings; a package or saved design cannot supply either.
+
+Both host and manifest accept positive integer fuel through 18446744073709551615 (`u64::MAX`),
+without conversion through floating-point controls. Memory accepts 1..4096 MiB: the remaining
+4096 MiB maximum is the technical Wasm32 address-space boundary (65536 pages of 64 KiB), not
+the old policy ceiling. Memory64 remains disabled and only one linear memory is allowed. A
+higher ceiling does not reserve memory or guarantee allocation; select a value your machine
+can sustain. The 30-second maximum deadline and the other fixed limits in the table remain.
+
+### Approve the package's actual request
+
+`runtime.limits` still determines the invocation's fuel, memory and deadline. Omitting that
+object still requests 10 million fuel, 64 MiB and 5000 ms, even under much larger host ceilings.
+`plugin.inspect` accepts a structurally valid larger request without instantiating it. Its reply
+contains the exact requested manifest limits, current `host_limits`, `within_host_limits`, and
+an optional `limits_error`. Inspect and review the code, grants and budgets first. If needed,
+explicitly raise the host ceilings, then pass the inspected content hash to `plugin.run`.
+The content hash covers the declared budgets: editing them requires fresh inspection and approval.
+Raising a host ceiling alone never approves content, increases a request, executes or retries it.
+The host rechecks the current ceilings before compilation/execution. Lowering them can refuse a
+previously approved package. Desktop results prepared under changed ceilings or disable settings
+are discarded rather than adopted into the current design. Settings survive new/open design
+operations and scratch copies, but are never serialized as design data.
 
 Fuel and epoch checks contain guest execution, not arbitrary native work. Component compilation
 happens before the guest deadline; its input size is bounded, but compiler memory/time are not

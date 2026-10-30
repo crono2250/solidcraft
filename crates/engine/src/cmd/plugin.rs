@@ -20,11 +20,19 @@ pub static COMMANDS: &[CommandSpec] = &[
         .contract(&TypedContract::<RunParams>::new()).output(output_schema_for::<RunResult>)
         .params("path, approval: exact hash from plugin.inspect after reviewing permissions, entry, params?: JSON; explicit native Wasm component execution, one undo step; errors discard all edits"),
 ];
-fn inspect(_: &mut Session, p: &Value) -> Result<Value> {
+fn inspect(s: &mut Session, p: &Value) -> Result<Value> {
     let p: InspectParams = serde_json::from_value(p.clone()).map_err(|e| bad("plugin.inspect", e.to_string()))?;
     let package = plugin::read_package(&p.path)?;
-    serde_json::to_value(InspectResult { manifest: package.manifest, approval: package.approval, param_warnings: vec![] })
-        .map_err(|e| bad("plugin.inspect", e.to_string()))
+    let limits_error = package.manifest.runtime.as_ref().and_then(|r| s.plugin_limits.check(&r.limits).err()).map(|e| e.to_string());
+    serde_json::to_value(InspectResult {
+        manifest: package.manifest,
+        approval: package.approval,
+        host_limits: s.plugin_limits,
+        within_host_limits: limits_error.is_none(),
+        limits_error,
+        param_warnings: vec![],
+    })
+    .map_err(|e| bad("plugin.inspect", e.to_string()))
 }
 fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let p: RunParams = serde_json::from_value(p.clone()).map_err(|e| bad("plugin.run", e.to_string()))?;

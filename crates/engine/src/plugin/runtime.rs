@@ -132,7 +132,7 @@ pub(super) fn run(session: &mut Session, package: &Package, entry: &str, params:
         calls: 0,
         log_bytes: 0,
         limits: StoreLimitsBuilder::new()
-            .memory_size(runtime.limits.memory_mib * 1024 * 1024)
+            .memory_size(runtime.limits.memory_mib.checked_mul(1024 * 1024).ok_or_else(|| error("memory limit cannot be represented on this host"))?)
             .instances(8)
             .memories(1)
             .tables(2)
