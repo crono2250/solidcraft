@@ -53,9 +53,14 @@ WebAssembly **component**, not just a core Wasm module.
    press **Ctrl+O**, enter the full path to `plugin-box.sc` in the results folder you
    recorded, and open it. The box should appear as an ordinary editable native feature.
 
-Each launcher creates a fresh results folder and isolated application data/recovery
-settings. The GUI launcher also places the sample in its isolated plugin folder.
+The command-line test creates a fresh results folder each time. The GUI launcher uses an
+isolated application data and recovery profile under `results/gui-profile` and places the
+sample in its isolated plugin folder.
 Neither launcher replaces your normal SolidCraft settings or installed plugins.
+
+The test GUI retains its settings under `results/gui-profile` between launches.
+The English starter profile is copied only on first launch, so changes to plugin ceilings persist.
+Use one test GUI at a time with this profile.
 Automatic AI-app registration and update checking are off in this isolated profile.
 
 | Check | Expected result |
