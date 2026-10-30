@@ -8,6 +8,12 @@ license.workspace = true
 [lints]
 workspace = true
 
+# Browser/native profiling and STEP timestamps stay enabled for existing hosts.
+# Component guests have no browser clock imports.
+[features]
+default = ["clock"]
+clock = ["dep:web-time", "truck-stepio/clock"]
+
 [dependencies]
 solidcraft-geom = { workspace = true }
 serde = { workspace = true }
@@ -20,7 +26,7 @@ truck-meshalgo = { workspace = true }
 truck-stepio = { workspace = true }
 truck-topology = { workspace = true }
 spade = { workspace = true }
-web-time = { workspace = true }
+web-time = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = { workspace = true }

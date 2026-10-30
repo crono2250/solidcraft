@@ -1,4 +1,4 @@
-//! Conservative reconstruction of constant-section mechanical mesh parts.
+//! Conservative reconstruction of mechanical meshes from certified straight-extrusion parts.
 //! Geometry is inferred from closed, manifold input, never from a display mesh.
 
 use std::collections::BTreeMap;
@@ -6,6 +6,11 @@ use std::collections::BTreeMap;
 use solidcraft_geom::{Loop2, Plane, Region2, Vec2, Vec3};
 
 use crate::{Body, KernelError, Result};
+
+#[path = "mesh_convert_curves.rs"]
+mod curves;
+#[path = "mesh_convert_parts.rs"]
+mod parts;
 
 const MAX_TRIANGLES: usize = 50_000;
 const MAX_BOUNDARY: usize = 8192;
@@ -18,17 +23,18 @@ fn invalid(message: &str) -> KernelError {
     KernelError::Invalid(format!("mesh conversion: {message}"))
 }
 
-/// A mesh over the triangle budget: how big it is, the limit, and that only constant-section
-/// parts convert, so a smaller freeform mesh would still be refused (#346).
+/// A mesh over the triangle budget: its size, the limit and the supported shape family.
 fn over_budget(triangles: usize) -> KernelError {
     invalid(&format!(
-        "the mesh has {triangles} triangles, more than the {MAX_TRIANGLES} conversion can take; only closed constant-section parts (one profile extruded straight) can be converted, so a freeform mesh is refused at any size"
+        "the mesh has {triangles} triangles, more than the {MAX_TRIANGLES} conversion can take; only closed constant-section parts and certified combinations joined at planar shoulders can be converted, so a freeform mesh is refused at any size"
     ))
 }
 
-/// Reconstruct a constant-section mesh as analytic planes and, where certified
+/// Reconstruct straight-extrusion parts and their planar shoulders as analytic planes and, where certified
 /// within `tolerance` mm, circular cylinders. The source mesh is not modified.
 /// Unsupported shapes are refused instead of silently returning a faceted solid.
+/// Every successful return has passed closed-shell, missing-face, full measurement
+/// and source-volume certification. No mutation follows that validation.
 pub fn convert_prismatic_mesh(body: &Body, tolerance: f64) -> Result<Body> {
     crate::guard("convert prismatic mesh", || {
         if !tolerance.is_finite() || !(1e-6..=1.).contains(&tolerance) {
@@ -67,13 +73,41 @@ pub fn convert_prismatic_mesh(body: &Body, tolerance: f64) -> Result<Body> {
         }
         let mut axes: Vec<_> = axes.into_values().collect();
         axes.sort_by(|a, b| b.1.total_cmp(&a.1));
-        for (axis, _) in axes.into_iter().take(16) {
+        for &(axis, _) in axes.iter().take(16) {
             if let Some(result) = extrusion(mesh, axis, tolerance)? {
                 return Ok(result);
             }
         }
-        Err(invalid("this mesh is not a supported constant-section prism; no geometry was converted"))
+        for &(axis, _) in axes.iter().take(16) {
+            if let Some(result) = curves::conical_frustum(mesh, axis, tolerance)? {
+                return Ok(result);
+            }
+            if let Some(result) = curves::countersunk_bores(mesh, axis, tolerance)? {
+                return Ok(result);
+            }
+        }
+        if let Some(result) = parts::reconstruct(mesh, tolerance)? {
+            return Ok(result);
+        }
+        Err(invalid("this mesh cannot be certified as straight-extrusion parts joined at planar shoulders; no geometry was converted"))
     })
+}
+
+/// Same closed-shell, missing-face and positive full-measure checks as Body::validity,
+/// returning the measurement for the reconstruction's source-volume certificate.
+/// This avoids tessellating the unchanged candidate twice without relaxing a check.
+fn validated_volume(body: &Body) -> Result<f64> {
+    if body.is_mesh()
+        || body.solid.boundaries().iter().any(|s| s.shell_condition() != truck_topology::shell::ShellCondition::Closed)
+        || body.unmeshed_faces() > 0
+    {
+        return Err(invalid("reconstructed solid did not pass validity checks"));
+    }
+    let volume = crate::measure(body)?.volume;
+    if !volume.is_finite() || volume <= 0. {
+        return Err(invalid("reconstructed solid has no positive finite volume"));
+    }
+    Ok(volume)
 }
 
 fn weld(mesh: &crate::meshbody::TriMesh, tolerance: f64) -> Result<Body> {
@@ -218,7 +252,42 @@ fn extrusion(mesh: &crate::meshbody::TriMesh, axis: Vec3, tolerance: f64) -> Res
         }
         Some(adjacency)
     };
-    let (Some(mut adjacency), Some(other)) = (boundary(0), boundary(1)) else { return Ok(None) };
+    let (Some(mut adjacency), Some(mut other)) = (boundary(0), boundary(1)) else { return Ok(None) };
+    // Clipping a triangle at a shoulder can introduce different collinear nodes
+    // on the two caps. Compare their actual polygon edges, not tessellation counts.
+    let simplify = |graph: &mut BTreeMap<(i64, i64), Vec<(i64, i64)>>| -> Option<()> {
+        if graph.len() > MAX_BOUNDARY || graph.values().any(|v| v.len() != 2) {
+            return None;
+        }
+        let mut pending: std::collections::VecDeque<_> = graph.keys().copied().collect();
+        while let Some(key) = pending.pop_front() {
+            let Some(neighbours) = graph.get(&key) else { continue };
+            let (Some(&a), Some(&b)) = (neighbours.first(), neighbours.get(1)) else { return None };
+            if a == b {
+                return None;
+            }
+            let (pa, pb, p) = (*positions.get(&a)?, *positions.get(&b)?, *positions.get(&key)?);
+            let line = solidcraft_geom::Seg2::Line { a: pa, b: pb };
+            if line.point_at(line.closest_param(p)).dist(p) > epsilon * 3. {
+                continue;
+            }
+            if graph.get(&a)?.contains(&b) {
+                continue;
+            }
+            graph.remove(&key);
+            for (from, to) in [(a, b), (b, a)] {
+                let adjacent = graph.get_mut(&from)?;
+                let slot = adjacent.iter_mut().find(|v| **v == key)?;
+                *slot = to;
+                adjacent.sort();
+                pending.push_back(from);
+            }
+        }
+        Some(())
+    };
+    if simplify(&mut adjacency).is_none() || simplify(&mut other).is_none() {
+        return Ok(None);
+    }
     if adjacency != other || adjacency.is_empty() || adjacency.len() > MAX_BOUNDARY || adjacency.values().any(|n| n.len() != 2) {
         return Ok(None);
     }
@@ -290,12 +359,9 @@ fn extrusion(mesh: &crate::meshbody::TriMesh, axis: Vec3, tolerance: f64) -> Res
         }
     }
     let body = crate::extrude_planar_regions(&plane, &regions, 0., height)?;
-    if !body.validity().is_empty() {
-        return Err(invalid("reconstructed solid did not pass validity checks"));
-    }
+    let rebuilt = validated_volume(&body)?;
     let perimeter: f64 = loops.iter().flat_map(|lp| &lp.segs).map(|s| s.length()).sum();
     let original = mesh.to_mesh().measure().volume;
-    let rebuilt = crate::measure(&body)?.volume;
     if !original.is_finite() || original <= 0. || (rebuilt - original).abs() > perimeter * height * tolerance + epsilon * bounds.size().len().powi(2)
     {
         return Err(invalid("reconstructed volume is inconsistent with the source mesh"));
@@ -394,7 +460,111 @@ fn fit_loop(points: &[Vec2], tolerance: f64, epsilon: f64) -> Loop2 {
         let Some(index) = remove else { break };
         points.remove(index);
     }
-    Loop2::polygon(&points)
+    fit_partial_arcs(&points, tolerance, epsilon)
+}
+
+/// A circular arc through both actual endpoints, independently certified against every
+/// source vertex and chord. Short polygon corners and coarse facets are not rounded.
+fn partial_arc(points: &[Vec2], tolerance: f64, epsilon: f64) -> Option<solidcraft_geom::Seg2> {
+    use solidcraft_geom::Seg2;
+    if points.len() < 5 {
+        return None;
+    }
+    let first = *points.first()?;
+    let last = *points.last()?;
+    let chord = last - first;
+    let length = chord.len();
+    if length <= epsilon * 10. {
+        return None;
+    }
+    let mean = points.iter().copied().fold(Vec2::ZERO, |a, b| a + b) / points.len() as f64;
+    let (mut xx, mut xy, mut yy, mut xq, mut yq) = (0., 0., 0., 0., 0.);
+    for p in points {
+        let d = *p - mean;
+        let q = d.len2();
+        xx += d.x * d.x;
+        xy += d.x * d.y;
+        yy += d.y * d.y;
+        xq += d.x * q;
+        yq += d.y * q;
+    }
+    let determinant = xx * yy - xy * xy;
+    if determinant.abs() <= (xx + yy).powi(2) * 1e-10 {
+        return None;
+    }
+    let seed = mean + Vec2::new(yy * xq - xy * yq, xx * yq - xy * xq) / (2. * determinant);
+    let normal = Vec2::new(-chord.y, chord.x) / length;
+    let middle = (first + last) * 0.5;
+    let center = middle + normal * (seed - middle).dot(normal);
+    let radius = center.dist(first);
+    if !radius.is_finite() || radius <= epsilon {
+        return None;
+    }
+    let residual = points.iter().map(|p| (p.dist(center) - radius).abs()).fold(0., f64::max);
+    if residual > epsilon * 5. {
+        return None;
+    }
+    let mut sweep = 0.;
+    let mut direction = 0.;
+    for pair in points.windows(2) {
+        let (a, b) = (pair[0] - center, pair[1] - center);
+        let angle = a.cross(b).atan2(a.dot(b));
+        if direction == 0. {
+            direction = angle.signum();
+        }
+        if angle * direction <= 0.
+            || angle.abs() > std::f64::consts::PI / 6. + 1e-8
+            || radius * (1. - (angle * 0.5).cos()) + residual + epsilon * 10. > tolerance
+        {
+            return None;
+        }
+        sweep += angle;
+    }
+    if sweep.abs() < 0.04 || sweep.abs() > std::f64::consts::TAU - 0.01 {
+        return None;
+    }
+    let start = (first - center).y.atan2((first - center).x);
+    Some(Seg2::Arc { center, radius, start, sweep })
+}
+
+fn fit_partial_arcs(points: &[Vec2], tolerance: f64, epsilon: f64) -> Loop2 {
+    use solidcraft_geom::Seg2;
+    let n = points.len();
+    if n < 5 {
+        return Loop2::polygon(points);
+    }
+    // Put the cyclic seam at the sharpest join rather than inside a circular run.
+    let turn = |i: usize| {
+        let a = points[i] - points[(i + n - 1) % n];
+        let b = points[(i + 1) % n] - points[i];
+        a.cross(b).atan2(a.dot(b)).abs()
+    };
+    let offset = (0..n).max_by(|&a, &b| turn(a).total_cmp(&turn(b))).unwrap_or(0);
+    let ring: Vec<_> = (0..=n).filter_map(|i| points.get((i + offset) % n).copied()).collect();
+    let mut at = 0;
+    let mut work = 0usize;
+    let mut segs = Vec::new();
+    while at < n {
+        let mut fitted = None;
+        for end in at + 4..=n {
+            work = work.saturating_add((end - at + 1) * 2);
+            if work > 4_000_000 {
+                return Loop2::polygon(points);
+            }
+            let Some(run) = ring.get(at..=end) else { break };
+            let Some(arc) = partial_arc(run, tolerance, epsilon) else { break };
+            fitted = Some((end, arc));
+        }
+        if let Some((end, arc)) = fitted {
+            segs.push(arc);
+            at = end;
+        } else {
+            let (Some(&a), Some(&b)) = (ring.get(at), ring.get(at + 1)) else { return Loop2::polygon(points) };
+            segs.push(Seg2::Line { a, b });
+            at += 1;
+        }
+    }
+    Loop2 { segs }
 }
 
 #[cfg(test)]
@@ -404,6 +574,107 @@ mod tests {
     fn mesh_of(body: &Body) -> Body {
         let mesh = body.tessellate(0.005).unwrap();
         crate::mesh_body(&mesh.positions, &mesh.triangles).unwrap()
+    }
+
+    fn assert_conical_recovery(name: &str, source: &Body) {
+        let result = convert_prismatic_mesh(&mesh_of(source), 0.05).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(result.validity().is_empty(), "{name}");
+        let step = crate::step_export(&[&result], "procedural cone regression").unwrap();
+        assert_eq!(
+            step.matches("CONICAL_SURFACE(").count(),
+            1,
+            "{name}: measure={:?}; splines={}; cylinders={}",
+            crate::measure(&result).unwrap(),
+            step.matches("B_SPLINE_SURFACE").count(),
+            step.matches("CYLINDRICAL_SURFACE(").count()
+        );
+        assert!((crate::measure(&result).unwrap().volume - crate::measure(source).unwrap().volume).abs() < 0.05, "{name}");
+        let moved = crate::transform(source, Vec3::new(31., -17., 9.), Vec3::ZERO, Vec3::new(1., 2., 3.), 0.73).unwrap();
+        let moved_result = convert_prismatic_mesh(&mesh_of(&moved), 0.05).unwrap_or_else(|e| panic!("rotated {name}: {e}"));
+        assert!(moved_result.validity().is_empty(), "rotated {name}");
+        assert!((crate::measure(&moved_result).unwrap().volume - crate::measure(source).unwrap().volume).abs() < 0.05, "rotated {name}");
+    }
+
+    #[test]
+    fn recovers_conical_frusta() {
+        let disc = Region2 { outer: Loop2::circle(Vec2::ZERO, 5.), holes: vec![] };
+        let source = crate::extrude_tapered(&Plane::XY, &disc, 8., 1., (-0.25_f64).atan()).unwrap();
+        assert_conical_recovery("frustum", &source);
+    }
+
+    #[test]
+    fn recovers_countersunk_bores() {
+        let disc = Region2 { outer: Loop2::circle(Vec2::ZERO, 5.), holes: vec![] };
+        let plate = crate::box_solid(Vec3::new(-10., -10., 0.), Vec3::new(10., 10., 4.)).unwrap();
+        let tool = crate::extrude_tapered(&Plane::XY.offset(5.), &disc, 3.2, -1., -std::f64::consts::FRAC_PI_4).unwrap();
+        let drill = crate::cylinder(Vec3::new(0., 0., -1.), Vec3::Z, 2., 6.).unwrap();
+        let source =
+            crate::boolean(&crate::boolean(&plate, &tool, crate::BoolOp::Cut).unwrap().unwrap(), &drill, crate::BoolOp::Cut).unwrap().unwrap();
+        assert_conical_recovery("countersink", &source);
+    }
+
+    #[test]
+    fn refuses_coarse_and_damaged_conical_sides() {
+        let outline: Vec<_> = (0..6)
+            .map(|i| {
+                let a = i as f64 * std::f64::consts::TAU / 6.;
+                Vec2::new(a.cos(), a.sin()) * 5.
+            })
+            .collect();
+        let region = Region2 { outer: Loop2::polygon(&outline), holes: vec![] };
+        let coarse = crate::extrude_tapered(&Plane::XY, &region, 8., 1., (-0.25_f64).atan()).unwrap();
+        assert!(convert_prismatic_mesh(&mesh_of(&coarse), 0.05).is_err());
+        let disc = Region2 { outer: Loop2::circle(Vec2::ZERO, 5.), holes: vec![] };
+        let smooth = crate::extrude_tapered(&Plane::XY, &disc, 8., 1., (-0.25_f64).atan()).unwrap();
+        let mut mesh = mesh_of(&smooth).mesh.as_ref().unwrap().as_ref().clone();
+        let vertex = mesh.positions.iter_mut().find(|p| p.x.abs() > 1.).unwrap();
+        vertex.x += 0.4;
+        assert!(convert_prismatic_mesh(&crate::mesh_body(&mesh.positions, &mesh.triangles).unwrap(), 0.05).is_err());
+    }
+
+    #[test]
+    fn countersink_fitting_cannot_open_a_thin_outer_wall() {
+        // A closed explicit mesh avoids the loft display tessellator's T-junctions.
+        // Its 32-sided mouth fits within x=3.985; rounding to radius4 would break out.
+        let mut angles: Vec<_> = (0..32).map(|i| (i as f64 + 0.5) * std::f64::consts::TAU / 32.).collect();
+        for (x, y) in [(3.985_f64, 10_f64), (-10., 10.), (-10., -10.), (3.985, -10.)] {
+            angles.push(y.atan2(x).rem_euclid(std::f64::consts::TAU));
+        }
+        angles.sort_by(f64::total_cmp);
+        let n = angles.len();
+        let mut positions = Vec::new();
+        for z in [0., 4.] {
+            for &a in &angles {
+                let (x, y) = (a.cos(), a.sin());
+                let k = (if x >= 0. { 3.985 / x } else { -10. / x }).min(if y >= 0. { 10. / y } else { -10. / y });
+                positions.push(Vec3::new(k * x, k * y, z));
+            }
+        }
+        for (r, z) in [(2., 0.), (4., 4.)] {
+            for &a in &angles {
+                positions.push(Vec3::new(r * a.cos(), r * a.sin(), z));
+            }
+        }
+        let mut triangles = Vec::new();
+        for i in 0..n {
+            let j = (i + 1) % n;
+            triangles.extend(
+                [
+                    [i, j, n + j],
+                    [i, n + j, n + i],
+                    [2 * n + i, 3 * n + j, 2 * n + j],
+                    [2 * n + i, 3 * n + i, 3 * n + j],
+                    [i, 2 * n + j, j],
+                    [i, 2 * n + i, 2 * n + j],
+                    [n + i, n + j, 3 * n + j],
+                    [n + i, 3 * n + j, 3 * n + i],
+                ]
+                .map(|t| t.map(|i| i as u32)),
+            );
+        }
+        let input = crate::mesh_body(&positions, &triangles).unwrap();
+        assert!(input.validity().is_empty());
+        assert!(convert_prismatic_mesh(&input, 0.05).is_err());
     }
 
     #[test]
@@ -532,5 +803,140 @@ mod tests {
         let mesh = mesh_of(&perforated_plate(7, 7));
         let result = convert_prismatic_mesh(&mesh, 0.05).unwrap();
         assert!((crate::measure(&result).unwrap().volume - (30. * 30. - 49. * 4.) * 3.).abs() < 1e-6);
+    }
+
+    #[test]
+    fn restores_a_partial_circular_notch_without_faceting_its_wall() {
+        use solidcraft_geom::Seg2;
+        let profile = Loop2 {
+            segs: vec![
+                Seg2::Line { a: Vec2::new(0., 0.), b: Vec2::new(20., 0.) },
+                Seg2::Line { a: Vec2::new(20., 0.), b: Vec2::new(20., 12.) },
+                Seg2::Line { a: Vec2::new(20., 12.), b: Vec2::new(14., 12.) },
+                Seg2::Arc { center: Vec2::new(10., 12.), radius: 4., start: 0., sweep: -std::f64::consts::PI },
+                Seg2::Line { a: Vec2::new(6., 12.), b: Vec2::new(0., 12.) },
+                Seg2::Line { a: Vec2::new(0., 12.), b: Vec2::new(0., 0.) },
+            ],
+        };
+        let source = crate::extrude_planar_regions(&Plane::XY, &[Region2 { outer: profile, holes: vec![] }], 0., 5.).unwrap();
+        let converted = convert_prismatic_mesh(&mesh_of(&source), 0.05).unwrap();
+        assert!(converted.validity().is_empty());
+        assert_eq!(crate::measure(&converted).unwrap().merged.face_types.get("cylinder"), Some(&1));
+        assert!(converted.face_count() < 12, "{}", converted.face_count());
+        assert!((converted.tessellate_with(1e-5, true).unwrap().measure().volume - (240. - 8. * std::f64::consts::PI) * 5.).abs() < 0.01);
+    }
+
+    #[test]
+    fn reconstructs_a_plate_with_perpendicular_notched_extrusions() {
+        use solidcraft_geom::Seg2;
+        let profile = || Region2 {
+            outer: Loop2 {
+                segs: vec![
+                    Seg2::Line { a: Vec2::new(0., 0.), b: Vec2::new(20., 0.) },
+                    Seg2::Line { a: Vec2::new(20., 0.), b: Vec2::new(20., 12.) },
+                    Seg2::Line { a: Vec2::new(20., 12.), b: Vec2::new(14., 12.) },
+                    Seg2::Arc { center: Vec2::new(10., 12.), radius: 4., start: 0., sweep: -std::f64::consts::PI },
+                    Seg2::Line { a: Vec2::new(6., 12.), b: Vec2::new(0., 12.) },
+                    Seg2::Line { a: Vec2::new(0., 12.), b: Vec2::new(0., 0.) },
+                ],
+            },
+            holes: vec![],
+        };
+        let mut source = crate::box_solid(Vec3::ZERO, Vec3::new(40., 28., 3.)).unwrap();
+        for y in [8., 24.] {
+            let plane = Plane { origin: Vec3::new(0., y, 3.), x: Vec3::X, y: Vec3::Z };
+            let upper = crate::extrude_planar_regions(&plane, &[profile()], 0., 4.).unwrap();
+            source = crate::boolean(&source, &upper, crate::BoolOp::Union).unwrap().unwrap();
+        }
+        for rotated in [false, true] {
+            let source = if rotated {
+                crate::transform(&source, Vec3::new(11., -7., 5.), Vec3::ZERO, Vec3::new(1., 2., 3.), 0.4).unwrap()
+            } else {
+                source.clone()
+            };
+            let raw = source.tessellate(0.005).unwrap();
+            let positions: Vec<_> = raw.positions.iter().map(|p| Vec3::new(p.x as f32 as f64, p.y as f32 as f64, p.z as f32 as f64)).collect();
+            let mesh = crate::mesh_body(&positions, &raw.triangles).unwrap();
+            let converted = convert_prismatic_mesh(&mesh, 0.05).unwrap();
+            assert!(!converted.is_mesh());
+            assert!(converted.validity().is_empty());
+            let m = crate::measure(&converted).unwrap();
+            assert!((m.volume - (3360. + 8. * (240. - 8. * std::f64::consts::PI))).abs() < 0.1, "{}", m.volume);
+            assert!(m.merged.face_types.get("cylinder").copied().unwrap_or(0) >= 2, "{:?}", m.merged.face_types);
+            assert!(converted.face_count() < 50);
+            let bytes = crate::step_export(&[&converted], "Public analytic reconstruction test").unwrap();
+            let imported = crate::step_import(&bytes).unwrap();
+            assert_eq!(imported.bodies.len(), 1);
+            assert!(imported.bodies[0].body.validity().is_empty());
+        }
+    }
+
+    fn phase_shifted_stepped_cylinder() -> Body {
+        let n = 96usize;
+        let mut positions = Vec::new();
+        let mut triangles = Vec::new();
+        for (radius, z, phase) in [(12., 0., 0.), (12., 4., 0.3), (8., 4., 0.7), (8., 9., 0.1)] {
+            for i in 0..n {
+                let angle = (i as f64 + phase) * std::f64::consts::TAU / n as f64;
+                positions.push(Vec3::new((radius * angle.cos()) as f32 as f64, (radius * angle.sin()) as f32 as f64, z));
+            }
+        }
+        for layer in 0..3 {
+            for i in 0..n {
+                let a = (layer * n + i) as u32;
+                let b = (layer * n + (i + 1) % n) as u32;
+                let c = ((layer + 1) * n + (i + 1) % n) as u32;
+                let d = ((layer + 1) * n + i) as u32;
+                triangles.extend([[a, b, c], [a, c, d]]);
+            }
+        }
+        positions.extend([Vec3::ZERO, Vec3::new(0., 0., 9.)]);
+        for i in 0..n {
+            triangles.push([(4 * n) as u32, ((i + 1) % n) as u32, i as u32]);
+            triangles.push([(4 * n + 1) as u32, (3 * n + i) as u32, (3 * n + (i + 1) % n) as u32]);
+        }
+        crate::mesh_body(&positions, &triangles).unwrap()
+    }
+
+    #[test]
+    fn reconstructs_a_stepped_cylinder_with_different_tessellation_phases() {
+        let mesh = phase_shifted_stepped_cylinder();
+        let converted = convert_prismatic_mesh(&mesh, 0.05).unwrap();
+        assert!(converted.validity().is_empty());
+        let volume = converted.tessellate_with(1e-5, true).unwrap().measure().volume;
+        assert!((volume - 896. * std::f64::consts::PI).abs() < 0.03, "{volume}");
+        assert!(converted.face_count() < 16, "{}", converted.face_count());
+        assert_eq!(crate::measure(&converted).unwrap().merged.face_types.get("cylinder"), Some(&2));
+    }
+
+    #[test]
+    fn rotated_f32_stepped_cylinder_preserves_the_analytic_shape() {
+        let source = phase_shifted_stepped_cylinder();
+        let mesh = source.mesh.as_ref().unwrap();
+        let normal = Vec3::new(1., 2., 3.).normalized().unwrap();
+        let angle = 0.43f64;
+        let positions: Vec<_> = mesh
+            .positions
+            .iter()
+            .map(|p| {
+                let q = *p * angle.cos() + normal.cross(*p) * angle.sin() + normal * (normal.dot(*p) * (1. - angle.cos())) + Vec3::new(13., -9., 7.);
+                Vec3::new(q.x as f32 as f64, q.y as f32 as f64, q.z as f32 as f64)
+            })
+            .collect();
+        let source = crate::mesh_body(&positions, &mesh.triangles).unwrap();
+        let converted = convert_prismatic_mesh(&source, 0.05).unwrap();
+        assert!(converted.validity().is_empty());
+        let volume = converted.tessellate_with(1e-5, true).unwrap().measure().volume;
+        assert!((volume - 896. * std::f64::consts::PI).abs() < 0.03, "{volume}");
+        assert!(converted.face_count() < 16);
+    }
+
+    #[test]
+    fn radial_damage_outside_tolerance_is_refused() {
+        let source = phase_shifted_stepped_cylinder();
+        let mut mesh = source.mesh.as_ref().unwrap().as_ref().clone();
+        mesh.positions[0].x += 0.4;
+        let source = crate::mesh_body(&mesh.positions, &mesh.triangles).unwrap();
+        assert!(convert_prismatic_mesh(&source, 0.05).is_err());
     }
 }

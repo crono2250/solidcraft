@@ -127,13 +127,22 @@ pub fn measure_mass(b: &Body) -> Result<MassMeasure> {
 /// in the browser). With `topology`, also the coarse unrefined mesh the topology counts take,
 /// made alongside them.
 fn mass(b: &Body, topology: bool) -> Result<(MassMeasure, Option<Mesh>)> {
+    mass_with_mode(b, topology, cfg!(target_arch = "wasm32"))
+}
+
+fn mass_with_mode(b: &Body, topology: bool, serial: bool) -> Result<(MassMeasure, Option<Mesh>)> {
     let size = b.size();
     let coarse_tol = (size * 1e-3).max(1e-3);
-    let coarse = b.tessellate_with(coarse_tol, true)?;
+    let coarse = if serial { b.tessellate_for_mass(coarse_tol, true)? } else { b.tessellate_with(coarse_tol, true)? };
     // Chord error relative to a radius sets the volume error: keep it near 3e-4 of the
     // smallest radius (thin tubes, small fillets).
     let tight = min_edge_radius(&coarse).map(|r| r * 3e-4).unwrap_or(f64::INFINITY);
     let fine_tol = (size * 5e-5).min(tight).max(size * 5e-6).max(1e-4);
+    if serial {
+        // Wasm has one lane: reduce each mesh before making the next one. Keeping
+        // all three full meshes serves no purpose and can exhaust a bounded guest.
+        return crate::profile::timed(crate::profile::Kind::Tessellate, || mass_serial(b, topology, coarse, coarse_tol, fine_tol));
+    }
     let mut jobs = vec![(fine_tol, true), ((fine_tol * 5.0).max(2e-4), true)];
     if topology {
         jobs.push((coarse_tol, false));
@@ -162,12 +171,40 @@ fn mass(b: &Body, topology: bool) -> Result<(MassMeasure, Option<Mesh>)> {
     // open on purpose (a surface, or a cup whose lid is still a separate sheet) has no volume of
     // its own; it keeps the origin, so such bodies still compare with each other when the centre
     // of their boxes moves (a crowned lid rises, the open cup under it doesn't change).
-    let (surface, gap) = face_sums(&fine, nf, Vec3::ZERO).iter().fold((0.0, Vec3::ZERO), |s, f| (s.0 + f.0, s.1 + f.3));
-    let o = Some(fine.bounds().center()).filter(|c| c.is_finite() && gap.len() <= 0.01 * surface).unwrap_or(Vec3::ZERO);
+    let o = mass_origin(&fine, nf);
     let (sf, sm, sc) = (face_sums(&fine, nf, o), face_sums(&medium, nf, o), face_sums(&coarse, nf, o));
+    Ok((combine_mass(&sf, &sm, &sc, o, coarse.bounds().union(&fine.bounds()), fine.bounds().center()), topo))
+}
+
+/// This is the same mass quadrature and coarse/fine agreement certificate as the
+/// parallel path. Only the lifetimes of the temporary meshes differ.
+fn mass_serial(b: &Body, topology: bool, coarse: Mesh, coarse_tol: f64, fine_tol: f64) -> Result<(MassMeasure, Option<Mesh>)> {
+    let fine = b.tessellate_for_mass(fine_tol, true)?;
+    let nf = b.face_count();
+    let o = mass_origin(&fine, nf);
+    let bbox = coarse.bounds().union(&fine.bounds());
+    let fallback_center = fine.bounds().center();
+    let (sf, sc) = (face_sums(&fine, nf, o), face_sums(&coarse, nf, o));
+    drop(fine);
+    drop(coarse);
+    let medium = b.tessellate_for_mass((fine_tol * 5.0).max(2e-4), true)?;
+    let sm = face_sums(&medium, nf, o);
+    drop(medium);
+    let topo = if topology { Some(b.tessellate_with(coarse_tol, false)?) } else { None };
+    Ok((combine_mass(&sf, &sm, &sc, o, bbox, fallback_center), topo))
+}
+
+fn mass_origin(fine: &Mesh, nf: usize) -> Vec3 {
+    let (surface, gap) = face_sums(fine, nf, Vec3::ZERO).iter().fold((0.0, Vec3::ZERO), |s, f| (s.0 + f.0, s.1 + f.3));
+    Some(fine.bounds().center()).filter(|c| c.is_finite() && gap.len() <= 0.01 * surface).unwrap_or(Vec3::ZERO)
+}
+
+type FaceSum = (f64, f64, Vec3, Vec3);
+
+fn combine_mass(sf: &[FaceSum], sm: &[FaceSum], sc: &[FaceSum], o: Vec3, bbox: Aabb3, fallback_center: Vec3) -> MassMeasure {
     let close = |x: f64, y: f64| (x - y).abs() <= 0.01 * x.abs().max(y.abs()) + 1e-9;
     let (mut area, mut v6, mut mom) = (0.0, 0.0, Vec3::ZERO);
-    for ((f, m), c) in sf.iter().zip(&sm).zip(&sc) {
+    for ((f, m), c) in sf.iter().zip(sm).zip(sc) {
         // Trust the finest tessellation that agrees with the next coarser one.
         let pick = if close(f.0, m.0) {
             f
@@ -188,8 +225,8 @@ fn mass(b: &Body, topology: bool) -> Result<(MassMeasure, Option<Mesh>)> {
     // some faces more coarsely than the sums do and break that.
     let mom = o * (4.0 * v6) + mom;
     let volume = v6 / 6.0;
-    let centroid = if v6.abs() > 1e-12 { mom / (4.0 * v6) } else { fine.bounds().center() };
-    Ok((MassMeasure { volume, area, centroid, bbox: coarse.bounds().union(&fine.bounds()) }, topo))
+    let centroid = if v6.abs() > 1e-12 { mom / (4.0 * v6) } else { fallback_center };
+    MassMeasure { volume, area, centroid, bbox }
 }
 
 #[cfg(test)]
@@ -205,11 +242,29 @@ mod tests {
         let post = cylinder(Vec3::new(10.0, 0.0, -5.0), Vec3::Z, 1.5, 10.0).unwrap();
         let shared = boolean(&ring, &post, BoolOp::Intersect).unwrap().unwrap();
         for b in [&ring, &shared] {
+            let (with_normals, for_mass) = (b.tessellate_with(0.01, true).unwrap(), b.tessellate_for_mass(0.01, true).unwrap());
+            assert_eq!(with_normals.positions, for_mass.positions);
+            assert_eq!(with_normals.triangles, for_mass.triangles);
+            assert_eq!(with_normals.tri_face, for_mass.tri_face);
+            assert_eq!(with_normals.edges, for_mass.edges);
+            assert_eq!(with_normals.edge_faces, for_mass.edge_faces);
+            assert!(for_mass.normals.is_empty());
             let (full, mass) = (measure(b).unwrap(), measure_mass(b).unwrap());
             assert_eq!(full.volume.to_bits(), mass.volume.to_bits());
             assert_eq!(full.area.to_bits(), mass.area.to_bits());
             assert_eq!(full.centroid, mass.centroid);
             assert_eq!((full.bbox.min, full.bbox.max), (mass.bbox.min, mass.bbox.max));
+            for topology in [false, true] {
+                let (serial, serial_topo) = mass_with_mode(b, topology, true).unwrap();
+                assert_eq!(full.volume.to_bits(), serial.volume.to_bits());
+                assert_eq!(full.area.to_bits(), serial.area.to_bits());
+                assert_eq!(full.centroid, serial.centroid);
+                assert_eq!((full.bbox.min, full.bbox.max), (serial.bbox.min, serial.bbox.max));
+                assert_eq!(serial_topo.is_some(), topology);
+                if let Some(mesh) = serial_topo {
+                    assert_eq!(merged_topology(b, &mesh).unwrap().faces, full.merged.faces);
+                }
+            }
         }
         let want = 2.0 * std::f64::consts::PI.powi(2) * 10.0 * 4.0;
         let got = measure_mass(&ring).unwrap().volume;

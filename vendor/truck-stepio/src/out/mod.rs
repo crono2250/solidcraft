@@ -300,7 +300,11 @@ impl Default for StepHeaderDescriptor {
     fn default() -> Self {
         Self {
             file_name: Default::default(),
+            // SolidCraft: component guests cannot import a browser clock.
+            #[cfg(feature = "clock")]
             time_stamp: chrono::Utc::now().naive_local().to_string(),
+            #[cfg(not(feature = "clock"))]
+            time_stamp: String::new(),
             authors: Default::default(),
             organization: Default::default(),
             organization_system: Default::default(),

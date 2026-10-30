@@ -40,6 +40,8 @@ path = "src/lib.rs"
 
 
 [dependencies.chrono]
+# SolidCraft: optional clock dependency for command-plugin guests.
+optional = true
 version = "0.4.38"
 features = ["wasmbind"]
 
@@ -96,7 +98,10 @@ version = "1.0.128"
 version = "0.4.0"
 
 [features]
+# SolidCraft: preserve the existing timestamp by default; clock-free writers use an empty timestamp.
+clock = ["dep:chrono"]
 default = [
+    "clock",
     "in",
     "derive",
 ]

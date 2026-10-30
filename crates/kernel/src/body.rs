@@ -1271,7 +1271,17 @@ impl Body {
         Some(made)
     }
 
+    /// The identical quadrature triangles and edge samples without display normals.
+    /// Kept private to measurement: callers needing a display use the normal mesh API.
+    pub(crate) fn tessellate_for_mass(&self, tol: f64, refine: bool) -> Result<Mesh> {
+        crate::profile::timed(crate::profile::Kind::Tessellate, || self.tessellate_fields(tol, f64::INFINITY, refine, false))
+    }
+
     fn tessellate_within_untimed(&self, tol: f64, angle: f64, refine: bool) -> Result<Mesh> {
+        self.tessellate_fields(tol, angle, refine, true)
+    }
+
+    fn tessellate_fields(&self, tol: f64, angle: f64, refine: bool, normals: bool) -> Result<Mesh> {
         let tol = if tol.is_finite() && tol > 0.0 { tol } else { 0.05 };
         let tol = tol.max(self.size() * 1e-6);
         if let Some(m) = &self.mesh {
@@ -1288,7 +1298,13 @@ impl Body {
             let turn = (angle.is_finite() && angle > 0.0)
                 .then(|| crate::tess::size::Turn { angle: angle.max(MIN_DISPLAY_ANGLE), floor: tol * DISPLAY_ANGLE_FLOOR });
             match guard("tessellate", || crate::tess::plan(&self.solid, tol, turn, self.boundary_tol)) {
-                Ok((plan, _)) => return Ok(plan.evaluate()),
+                Ok((plan, _)) => {
+                    let mut mesh = plan.evaluate();
+                    if !normals {
+                        mesh.normals = Vec::new();
+                    }
+                    return Ok(mesh);
+                }
                 Err(e) => log::debug!("no display plan ({e}); meshing the reference way"),
             }
         }
@@ -1315,12 +1331,23 @@ impl Body {
                     None
                 };
                 if let Some(tris) = refinement {
+                    // The exact output size is already known. Avoid geometric growth
+                    // while the face's refinement still occupies guest memory.
+                    let corners = tris.len().saturating_mul(3);
+                    out.positions.reserve_exact(corners);
+                    if normals {
+                        out.normals.reserve_exact(corners);
+                    }
+                    out.triangles.reserve_exact(tris.len());
+                    out.tri_face.reserve_exact(tris.len());
                     let fid = u32::try_from(fi).unwrap_or(u32::MAX);
                     for t in tris {
                         let mut idx = [0u32; 3];
                         for (slot, (p, n)) in idx.iter_mut().zip(t) {
                             out.positions.push(p);
-                            out.normals.push(if flip { -n } else { n });
+                            if normals {
+                                out.normals.push(if flip { -n } else { n });
+                            }
                             *slot = u32::try_from(out.positions.len() - 1).unwrap_or(0);
                         }
                         out.triangles.push(if flip { [idx[0], idx[2], idx[1]] } else { idx });
@@ -1335,10 +1362,11 @@ impl Body {
                     let mut idx = [0u32; 3];
                     for (k, v) in tri.iter().enumerate() {
                         let Some(p) = pos.get(v.pos) else { continue };
-                        let n = v.nor.and_then(|ni| nor.get(ni)).map(|n| Vec3::new(n.x, n.y, n.z)).unwrap_or(Vec3::Z);
-                        let n = if flip { -n } else { n };
                         out.positions.push(Vec3::new(p.x, p.y, p.z));
-                        out.normals.push(n);
+                        if normals {
+                            let n = v.nor.and_then(|ni| nor.get(ni)).map(|n| Vec3::new(n.x, n.y, n.z)).unwrap_or(Vec3::Z);
+                            out.normals.push(if flip { -n } else { n });
+                        }
                         if let Some(slot) = idx.get_mut(k) {
                             *slot = u32::try_from(out.positions.len() - 1).unwrap_or(0);
                         }
@@ -1349,19 +1377,22 @@ impl Body {
                 }
                 let _ = base;
             }
-            // Fill missing normals from geometry.
-            for t in &out.triangles {
-                let (Some(a), Some(b), Some(c)) =
-                    (out.positions.get(t[0] as usize), out.positions.get(t[1] as usize), out.positions.get(t[2] as usize))
-                else {
-                    continue;
-                };
-                let fnrm = (b - a).cross(c - a).normalized().unwrap_or(Vec3::Z);
-                for k in t {
-                    if let Some(n) = out.normals.get_mut(*k as usize)
-                        && (n.dot(fnrm) < -0.2 || n.len() < 0.5)
-                    {
-                        *n = fnrm;
+            // Measurement meshes carry no normals to repair.
+            if normals {
+                // Fill missing normals from geometry.
+                for t in &out.triangles {
+                    let (Some(a), Some(b), Some(c)) =
+                        (out.positions.get(t[0] as usize), out.positions.get(t[1] as usize), out.positions.get(t[2] as usize))
+                    else {
+                        continue;
+                    };
+                    let fnrm = (b - a).cross(c - a).normalized().unwrap_or(Vec3::Z);
+                    for k in t {
+                        if let Some(n) = out.normals.get_mut(*k as usize)
+                            && (n.dot(fnrm) < -0.2 || n.len() < 0.5)
+                        {
+                            *n = fnrm;
+                        }
                     }
                 }
             }

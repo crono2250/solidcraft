@@ -6,6 +6,7 @@
 //! the boolean's time, so the two never add up to more than the command took. Work a call hands
 //! to other threads is inside that call's wall time.
 
+#[cfg(feature = "clock")]
 use std::cell::Cell;
 
 /// Kernel time spent while a [`capture`] ran, in milliseconds.
@@ -22,6 +23,7 @@ pub(crate) enum Kind {
     Tessellate,
 }
 
+#[cfg(feature = "clock")]
 #[derive(Clone, Copy, Default)]
 struct State {
     /// A capture is running on this thread.
@@ -31,12 +33,14 @@ struct State {
     times: KernelTimes,
 }
 
+#[cfg(feature = "clock")]
 thread_local! {
     static STATE: Cell<State> = const { Cell::new(State { on: false, busy: false, times: KernelTimes { boolean_ms: 0.0, tessellate_ms: 0.0 } }) };
 }
 
 /// Run `f`, and the kernel time it spent in booleans and tessellation on this thread. Captures
 /// nest: an inner capture's time is the outer one's too.
+#[cfg(feature = "clock")]
 pub fn capture<T>(f: impl FnOnce() -> T) -> (T, KernelTimes) {
     struct Restore(State);
     impl Drop for Restore {
@@ -62,6 +66,7 @@ pub fn capture<T>(f: impl FnOnce() -> T) -> (T, KernelTimes) {
 /// Count kernel time spent on other threads for this thread's running capture (when one runs
 /// and no timed call does): work this thread handed out and waited for. The caller keeps the
 /// sum within the wall time it waited, so the totals still never pass what the command took.
+#[cfg(feature = "clock")]
 pub fn credit(times: KernelTimes) {
     let ok = |x: f64| if x.is_finite() && x > 0.0 { x } else { 0.0 };
     STATE.with(|s| {
@@ -75,6 +80,7 @@ pub fn credit(times: KernelTimes) {
 }
 
 /// Time `f` as `kind` when a capture is running and no timed call is.
+#[cfg(feature = "clock")]
 pub(crate) fn timed<T>(kind: Kind, f: impl FnOnce() -> T) -> T {
     let st = STATE.with(Cell::get);
     if !st.on || st.busy {
@@ -105,7 +111,21 @@ pub(crate) fn timed<T>(kind: Kind, f: impl FnOnce() -> T) -> T {
     r
 }
 
-#[cfg(test)]
+/// Profiling is disabled in clock-free component guests; geometry still runs normally.
+#[cfg(not(feature = "clock"))]
+pub fn capture<T>(f: impl FnOnce() -> T) -> (T, KernelTimes) {
+    (f(), KernelTimes::default())
+}
+
+#[cfg(not(feature = "clock"))]
+pub fn credit(_: KernelTimes) {}
+
+#[cfg(not(feature = "clock"))]
+pub(crate) fn timed<T>(_: Kind, f: impl FnOnce() -> T) -> T {
+    f()
+}
+
+#[cfg(all(test, feature = "clock"))]
 mod tests {
     use super::*;
 

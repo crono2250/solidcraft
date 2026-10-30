@@ -365,3 +365,10 @@ SolidCraft changes:
   (the `wp::pointer_gestures` module); drop the example and test targets.
 - `src/event.rs`, `src/changelog/unreleased.md`: the platform notes of both events and the
   changelog entry.
+
+## Clock-free component SDK builds
+
+The optional truck-stepio/clock feature keeps existing STEP timestamps enabled
+by default; component guests may disable it so browser clock imports are absent.
+Without clock, the STEP header timestamp is empty. The source marks this change
+with SolidCraft comments. Geometry and normal host defaults are unchanged.
