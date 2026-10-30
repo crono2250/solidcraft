@@ -10,6 +10,10 @@ fn manifest() -> Value {
 fn manifest_is_inert_bounded_and_refuses_unknown_capabilities() {
     assert!(parse_manifest(br#"{"id":"sample","name":"Sample","version":"1"}"#, "sample").unwrap().runtime.is_none());
     assert!(parse_manifest(&serde_json::to_vec(&manifest()).unwrap(), "sample").is_ok());
+    let mut explicit = manifest();
+    explicit["runtime"]["limits"]["fuel"] = json!(100_000_000_000_u64);
+    assert!(parse_manifest(&serde_json::to_vec(&explicit).unwrap(), "sample").is_ok());
+    assert_eq!(Limits::default().fuel, 10_000_000);
     let old = parse_manifest(br#"{"id":"sample","name":" Sample ","version":" 1 ","description":" Old metadata "}"#, "sample").unwrap();
     assert_eq!((old.name.as_str(), old.version.as_str(), old.description.as_str()), ("Sample", "1", "Old metadata"));
     for mutate in [
@@ -18,6 +22,8 @@ fn manifest_is_inert_bounded_and_refuses_unknown_capabilities() {
         |m: &mut Value| m["runtime"]["commands"] = json!(["plugin.run"]),
         |m: &mut Value| m["runtime"]["entries"] = json!(["make", "make"]),
         |m: &mut Value| m["runtime"]["limits"]["memory_mib"] = json!(129),
+        |m: &mut Value| m["runtime"]["limits"]["fuel"] = json!(100_000_000_001_u64),
+        |m: &mut Value| m["runtime"]["limits"]["deadline_ms"] = json!(30_001),
         |m: &mut Value| m["runtime"]["api"] = json!("solidcraft:plugin@99.0.0"),
         |m: &mut Value| m["network"] = json!(true),
     ] {
@@ -96,13 +102,18 @@ mod native {
     }
     #[test]
     fn traps_fuel_memory_and_denied_calls_leave_design_and_history_untouched() {
-        for code in [
-            "call $box unreachable",
-            "call $box i32.const 8 i32.const 1 i32.store",
-            "call $box (loop $forever br $forever)",
-            "call $box i32.const 10000 memory.grow drop",
-            "call $box i32.const 2048 i32.const 11 i32.const 1024 i32.const 33 i32.const 0 call $run",
-            "call $box i32.const 2048 i32.const 11 i32.const 1024 i32.const 33 i32.const 0 call $run i32.const 0 i32.const 0 i32.store i32.const 4 i32.const 1024 i32.store i32.const 8 i32.const 33 i32.store",
+        for (code, diagnostic) in [
+            ("call $box unreachable", "trap=UnreachableCodeReached"),
+            ("call $box i32.const 8 i32.const 1 i32.store", "entry result is not JSON"),
+            ("call $box (loop $forever br $forever)", "trap=OutOfFuel"),
+            ("call $box i32.const 10000 memory.grow drop", "forcing trap when growing memory"),
+            ("call $box i32.const -1 i32.load drop", "trap=MemoryOutOfBounds"),
+            ("call $box i32.const 1 i32.const 0 i32.div_u drop", "trap=IntegerDivisionByZero"),
+            ("call $box i32.const 2048 i32.const 11 i32.const 1024 i32.const 33 i32.const 0 call $run", "not granted"),
+            (
+                "call $box i32.const 2048 i32.const 11 i32.const 1024 i32.const 33 i32.const 0 call $run i32.const 0 i32.const 0 i32.store i32.const 4 i32.const 1024 i32.store i32.const 8 i32.const 33 i32.store",
+                "not granted",
+            ),
         ] {
             let f = Fixture::new(code);
             let mut s = Session::default();
@@ -110,12 +121,39 @@ mod native {
             s.execute("edit.undo", &json!({})).unwrap();
             let before = s.doc.to_json();
             let history = (s.undo.len(), s.redo.len());
-            assert!(f.run(&mut s).is_err(), "{code}");
+            let message = f.run(&mut s).unwrap_err().to_string();
+            assert!(message.contains(diagnostic), "{code}: {message}");
+            if diagnostic == "trap=OutOfFuel" {
+                assert!(message.contains("fuel_consumed=100000"), "{message}");
+                assert!(message.contains("fuel_remaining=0"), "{message}");
+            }
             assert_eq!(s.doc.to_json(), before, "{code}");
             assert_eq!((s.undo.len(), s.redo.len()), history, "{code}");
             assert_eq!(s.active_sketch, None);
             assert_eq!(solidcraft_io::vfs::current_scope(), None);
         }
+    }
+    #[test]
+    fn epoch_interrupt_is_distinct_from_fuel_exhaustion_in_diagnostics() {
+        let mut config = wasmtime::Config::new();
+        config.consume_fuel(true).epoch_interruption(true);
+        let engine = wasmtime::Engine::new(&config).unwrap();
+        let module = wasmtime::Module::from_binary(&engine, &wat::parse_str(r#"(module (func (export "run") (loop br 0)))"#).unwrap()).unwrap();
+        let mut store = wasmtime::Store::new(&engine, ());
+        let limits = Limits { fuel: 100_000, memory_mib: 1, deadline_ms: 5000 };
+        store.set_fuel(limits.fuel).unwrap();
+        store.set_epoch_deadline(1);
+        let instance = wasmtime::Instance::new(&mut store, &module, &[]).unwrap();
+        let run = instance.get_typed_func::<(), ()>(&mut store, "run").unwrap();
+        // Advance the engine explicitly: no sleeps or wall-clock race in this test.
+        engine.increment_epoch();
+        let failure = run.call(&mut store, ()).unwrap_err();
+        let remaining = store.get_fuel().unwrap();
+        assert!(remaining > 0);
+        let message = crate::plugin::runtime::execution_error(&failure, Some(remaining), &limits).to_string();
+        assert!(message.contains("trap=Interrupt"), "{message}");
+        assert!(!message.contains("OutOfFuel"), "{message}");
+        assert!(message.contains(&format!("fuel_remaining={remaining}")), "{message}");
     }
     #[test]
     fn a_granted_component_reads_only_the_evaluated_mesh_and_preserves_history() {

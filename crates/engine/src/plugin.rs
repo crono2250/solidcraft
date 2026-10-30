@@ -109,8 +109,8 @@ pub fn parse_manifest(text: &[u8], folder: &str) -> Result<Manifest> {
             return Err(error("commands include an unavailable or forbidden built-in command"));
         }
         let l = &runtime.limits;
-        if !(1..=100_000_000).contains(&l.fuel) || !(1..=128).contains(&l.memory_mib) || !(1..=30_000).contains(&l.deadline_ms) {
-            return Err(error("limits exceed fuel 100000000, memory 128 MiB or deadline 30000 ms"));
+        if !(1..=100_000_000_000).contains(&l.fuel) || !(1..=128).contains(&l.memory_mib) || !(1..=30_000).contains(&l.deadline_ms) {
+            return Err(error("limits exceed fuel 100000000000, memory 128 MiB or deadline 30000 ms"));
         }
     }
     Ok(m)

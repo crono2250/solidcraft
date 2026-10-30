@@ -101,7 +101,7 @@ policy, not the GUI's preferences.
 | Resource | Default / hard maximum |
 |---|---|
 | Component input | 16 MiB |
-| Guest fuel per invocation | 10,000,000 / 100,000,000 |
+| Guest fuel per invocation | 10,000,000 / 100,000,000,000 |
 | Guest memory | 64 MiB / 128 MiB; one memory total |
 | Entry deadline | 5 s / 30 s |
 | Core instances / tables | 8 / 2 (guest plus canonical ABI shim) |
@@ -110,12 +110,28 @@ policy, not the GUI's preferences.
 | Params, one host result, final result | 1 MiB each, bounded JSON parser depth |
 | Log messages | 1 KiB each, 64 KiB per call; control characters stripped |
 
+The default fuel remains 10 million. Larger budgets require an explicit manifest value and a new
+content approval; the host never raises a budget or retries automatically. Fuel counts metered
+Wasm operations rather than milliseconds. A substantial separately compiled CAD routine can use
+billions of fuel units; the independent 30-second deadline and 128 MiB memory ceiling still apply
+to an explicitly approved larger request.
+
 Fuel and epoch checks contain guest execution, not arbitrary native work. Component compilation
 happens before the guest deadline; its input size is bounded, but compiler memory/time are not
 covered by guest fuel. Each approved native command runs under its existing engine/kernel limits;
 the guest deadline prevents more commands rather than forcibly interrupting a native call.
 The desktop worker keeps this work off the window thread. Stop drops adoption; an already running
 worker finishes unseen. It does not synchronously kill a native compiler or kernel call.
+
+Execution errors report the root cause before the Wasm backtrace, the typed trap (for example
+`OutOfFuel`, `Interrupt`, `MemoryOutOfBounds` or `UnreachableCodeReached`), consumed and remaining
+fuel, and the configured fuel, memory and deadline limits. A host/linker/resource error can have
+`trap=none`; its complete cause chain is still reported, including a refused memory/table growth.
+`Interrupt` identifies epoch interruption; it is distinct from fuel exhaustion. These diagnostics
+do not automatically retry a component, raise its limits or adopt a failed transaction. Successful
+invocations also write consumed/remaining fuel to the existing debug logger. In the CLI, pass
+`--debug` to see these counters on stderr; normal command output and plugin result JSON stay the
+same. No model contents or package paths are included in that counter message.
 
 There is no compiled-code cache, unsafe deserialization, WASI filesystem/clock/socket/process API,
 network integration, persistent store, plugin installer, signed index, custom panels or icons.

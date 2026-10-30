@@ -96,6 +96,22 @@ impl store::Host for State {
     }
 }
 
+// The outer Display can contain only a Wasm backtrace. Keep the root cause first,
+// plus the typed trap and exact fuel counters, without relaxing any execution limit.
+pub(super) fn execution_error(failure: &wasmtime::Error, remaining: Option<u64>, limits: &super::Limits) -> crate::EngineError {
+    let trap = failure.downcast_ref::<wasmtime::Trap>().map(|trap| format!("{trap:?}")).unwrap_or_else(|| "none".into());
+    let fuel = remaining
+        .map(|remaining| format!("fuel_consumed={}, fuel_remaining={remaining}", limits.fuel.saturating_sub(remaining)))
+        .unwrap_or_else(|| "fuel counters unavailable".into());
+    error(format!(
+        "component execution failed: {} (trap={trap}, {fuel}, fuel_limit={}, memory_limit_mib={}, deadline_ms={}): {failure:#}",
+        failure.root_cause(),
+        limits.fuel,
+        limits.memory_mib,
+        limits.deadline_ms
+    ))
+}
+
 pub(super) fn run(session: &mut Session, package: &Package, entry: &str, params: &Value) -> Result<Value> {
     let runtime = package.manifest.runtime.as_ref().ok_or_else(|| error("no runtime"))?;
     let params = serde_json::to_string(params).map_err(|e| error(e.to_string()))?;
@@ -149,18 +165,26 @@ pub(super) fn run(session: &mut Session, package: &Package, entry: &str, params:
     if clock.join().is_err() {
         return Err(error("deadline worker failed"));
     }
-    let response = response.map_err(|e| error(format!("component trapped or exceeded its execution budget: {e}")))?;
+    let response = response.map_err(|e| execution_error(&e, store.get_fuel().ok(), &runtime.limits))?;
     let text = response.map_err(|e| error(format!("entry failed: {e:?}")))?;
     if text.len() > MAX_JSON_BYTES {
         return Err(error("entry result exceeds 1 MiB"));
     }
     let value = serde_json::from_str(&text).map_err(|e| error(format!("entry result is not JSON: {e}")))?;
+    let remaining = store.get_fuel().ok();
     let mut state = store.into_data();
     if let Some(message) = state.failed {
         return Err(error(message));
     }
     if Instant::now() >= state.deadline {
         return Err(error("entry deadline exceeded"));
+    }
+    if let Some(remaining) = remaining {
+        ::log::debug!(
+            "plugin execution completed: fuel_consumed={}, fuel_remaining={remaining}, fuel_limit={}",
+            runtime.limits.fuel.saturating_sub(remaining),
+            runtime.limits.fuel
+        );
     }
     // Nested commands ran only on the scratch session. The outer plugin.run records one step.
     state.session.undo.clear();
