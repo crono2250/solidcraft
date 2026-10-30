@@ -61,7 +61,7 @@ required-features = ["raytrace-cpu"]
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
 # Component-model sandbox; no WASI, cache deserialization, network or process imports.
-wasmtime = { version = "48", optional = true, default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
+wasmtime = { version = "48.0.8", optional = true, default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 wat = "1"
